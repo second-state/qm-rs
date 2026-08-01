@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1>Skills</h1>
+<p class="sub">
+  Scope-owned instruction bundles. Only <strong>published</strong> skills reach a turn, and only if their
+  signature still verifies.
+</p>
+
+<div class="panel">
+  {% if skills %}
+    <div class="table-wrap">
+      <table>
+        <tr><th>Skill</th><th>Scope</th><th>Status</th><th>Version</th><th>Updated</th></tr>
+        {% for s in skills %}
+          <tr>
+            <td>
+              <a href="/skills/{{ s.id }}">{{ s.name }}</a>
+              <div class="hint">{{ s.description }}</div>
+              {% if not s.verified %}<span class="badge danger">signature invalid</span>{% endif %}
+              {% for c in s.unmet %}<span class="badge warn">needs {{ c }}</span>{% endfor %}
+            </td>
+            <td><code>{{ s.scope }}</code></td>
+            <td>
+              <span class="badge {% if s.status == 'published' %}ok{% elif s.status == 'archived' %}{% else %}warn{% endif %}">
+                {{ s.status }}
+              </span>
+            </td>
+            <td>{{ s.version }}</td>
+            <td>{{ s.updated_at | relative_time }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">No skills yet.</p>
+  {% endif %}
+</div>
+
+<h2>Add a skill</h2>
+<div class="panel">
+  <form method="post" action="/skills">
+    <label for="scope">Scope</label>
+    <select id="scope" name="scope">
+      {% for s in scopes %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+    </select>
+    <label for="source">SKILL.md</label>
+    <textarea id="source" name="source" rows="14" required>---
+name: triage-inbox
+description: Triage the inbox and draft replies
+required-capabilities: [gmail]
+---
+
+1. List unread mail from the last day.
+2. Label anything that needs a human.
+3. Draft replies for the rest and leave them unsent.
+</textarea>
+    <div class="actions" style="margin-top:10px">
+      <span class="hint">Frontmatter needs a lowercase <code>name</code>. New skills start as drafts.</span>
+      <button class="btn primary" type="submit">Create</button>
+    </div>
+  </form>
+</div>
+
+{% endblock content %}

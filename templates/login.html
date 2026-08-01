@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · {{ org_name | default(value="qm") }}</title>
+  <link rel="stylesheet" href="/assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A6%AB%3C/text%3E%3C/svg%3E">
+</head>
+<body class="centred">
+  <main class="narrow">
+    <h1>🦫 {{ org_name | default(value="qm") }}</h1>
+
+    {% if sent %}
+      <div class="panel">
+        <h3>Check your email</h3>
+        <p class="sub">
+          If that address can sign in here, a link is on its way. It works once and
+          expires shortly.
+        </p>
+        {% if console_mode %}
+          <p class="hint">
+            This instance is in <strong>console</strong> mode: the link was written to
+            the server log rather than emailed. Look for
+            <code>sign-in link</code> in the output.
+          </p>
+        {% endif %}
+        <p><a href="/auth/login">Use a different address</a></p>
+      </div>
+    {% else %}
+      <div class="panel">
+        <h3>Sign in</h3>
+        <p class="sub">We'll email you a link. There is no password to remember or leak.</p>
+
+        {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+
+        <form method="post" action="/auth/request">
+          <input type="hidden" name="next" value="{{ next }}">
+          <label for="email">Email address</label>
+          <input type="text" id="email" name="email" autocomplete="email"
+                 inputmode="email" autofocus required placeholder="you@example.com">
+          <div class="actions" style="margin-top:12px">
+            <span class="hint">Only allowed addresses can sign in.</span>
+            <button class="btn primary" type="submit">Email me a link</button>
+          </div>
+        </form>
+      </div>
+
+      {% if console_mode %}
+        <p class="hint">
+          No mail provider is configured, so sign-in links are written to the server
+          log. Set <code>[auth].email_mode = "resend"</code> to send real email.
+        </p>
+      {% endif %}
+    {% endif %}
+  </main>
+</body>
+</html>

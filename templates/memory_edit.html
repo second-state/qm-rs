@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1>Memory · <code>{{ scope }}</code></h1>
+<p class="sub">Edit directly. Saving checks the revision you loaded, so a concurrent edit is reported rather than overwritten.</p>
+
+<form method="post" action="/memory/{{ scope }}" class="panel">
+  <input type="hidden" name="revision" value="{{ revision }}">
+  <textarea name="content" rows="22">{{ content }}</textarea>
+  <div class="actions" style="margin-top:10px">
+    <span class="hint">revision <code>{{ revision | truncate(length=8, end="") }}</code></span>
+    <button class="btn primary" type="submit">Save</button>
+  </div>
+</form>
+
+<h2>History</h2>
+<div class="panel">
+  {% if history %}
+    <div class="table-wrap">
+      <table>
+        <tr><th>Revision</th><th>Operation</th><th>Author</th><th>When</th><th></th></tr>
+        {% for h in history %}
+          <tr>
+            <td class="mono">{{ h.short }}</td>
+            <td><span class="badge">{{ h.operation }}</span></td>
+            <td>{{ h.author | default(value="—") }}</td>
+            <td>{{ h.at | relative_time }}</td>
+            <td>
+              {% if h.revision != revision %}
+                <form method="post" action="/memory/{{ scope }}" class="inline">
+                  <input type="hidden" name="revision" value="{{ revision }}">
+                  <input type="hidden" name="content" value="">
+                  <input type="hidden" name="restore" value="{{ h.revision }}">
+                  <button class="btn small" type="submit">Restore</button>
+                </form>
+              {% else %}
+                <span class="badge accent">current</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">No revisions yet.</p>
+  {% endif %}
+</div>
+
+{% endblock content %}

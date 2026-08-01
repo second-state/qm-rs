@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1>Admin</h1>
+<p class="sub">What this instance is configured to be, and what it has been doing.</p>
+
+<div class="grid">
+  <div class="stat"><div class="n">{{ harness }}</div><div class="k">Harness</div></div>
+  <div class="stat"><div class="n">{{ posture }}</div><div class="k">Security posture</div></div>
+  <div class="stat"><div class="n">{{ org_id }}</div><div class="k">Org</div></div>
+  <div class="stat">
+    <div class="n">{{ applied | length }}/{{ migrations | length }}</div>
+    <div class="k">Migrations applied</div>
+  </div>
+</div>
+
+<h2>Database migrations</h2>
+<div class="panel">
+  <p class="hint">SQLite at <code>{{ db_path }}</code>. Migrations are compile-time embedded and applied in order.</p>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Version</th><th>State</th><th>Applied</th></tr>
+      {% for v in migrations %}
+        {% set match = applied | filter(attribute="version", value=v) %}
+        <tr>
+          <td class="mono">{{ v }}</td>
+          <td>
+            {% if match %}<span class="badge ok">applied</span>
+            {% else %}<span class="badge warn">pending</span>{% endif %}
+          </td>
+          <td>{% if match %}{{ match.0.applied_at | relative_time }}{% else %}—{% endif %}</td>
+        </tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+
+<h2>Plugins</h2>
+<div class="panel">
+  <p class="hint">
+    WasmEdge extension points: custom agent tools, turn middleware, and the security screener.
+    {% if plugins_active %}
+      <span class="badge ok">runtime active</span>
+    {% else %}
+      <span class="badge warn">built without the <code>wasm</code> feature</span>
+    {% endif %}
+  </p>
+  <div class="table-wrap">
+    <table>
+      {% for p in plugins %}<tr><td class="mono">{{ p }}</td></tr>{% endfor %}
+    </table>
+  </div>
+</div>
+
+<h2>Command policy floor</h2>
+<div class="panel">
+  <p class="hint">These apply in every posture, <code>dangerous</code> included. Scopes may add rules, never remove them.</p>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Pattern</th><th>Decision</th><th>Reason</th></tr>
+      {% for r in command_rules %}
+        <tr>
+          <td class="mono">{{ r.pattern }}</td>
+          <td>
+            <span class="badge {% if r.decision == 'deny' %}danger{% else %}warn{% endif %}">{{ r.decision }}</span>
+          </td>
+          <td>{{ r.reason | default(value="—") }}</td>
+        </tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+
+<h2>Surfaces</h2>
+<div class="panel">
+  <div class="table-wrap">
+    <table>
+      <tr><td>Web UI</td><td><span class="badge ok">on</span></td><td class="hint">No authentication — do not expose this port.</td></tr>
+      <tr>
+        <td>Telegram</td>
+        <td>{% if telegram_enabled %}<span class="badge ok">on</span>{% else %}<span class="badge">off</span>{% endif %}</td>
+        <td class="hint">Long-polls <code>getUpdates</code>; no inbound port needed.</td>
+      </tr>
+      <tr>
+        <td>Cron scheduler</td>
+        <td>{% if cron_enabled %}<span class="badge ok">on</span>{% else %}<span class="badge">off</span>{% endif %}</td>
+        <td class="hint">Claims each scheduled instant exactly once.</td>
+      </tr>
+    </table>
+  </div>
+</div>
+
+<h2>Audit log</h2>
+<div class="panel">
+  {% if audit %}
+    <div class="table-wrap">
+      <table>
+        <tr><th>When</th><th>Actor</th><th>Action</th><th>Scope</th><th>Target</th></tr>
+        {% for a in audit %}
+          <tr>
+            <td>{{ a.at | relative_time }}</td>
+            <td>{{ a.actor }}</td>
+            <td>
+              <span class="badge {% if a.ok %}{% else %}danger{% endif %}">{{ a.action }}</span>
+            </td>
+            <td>{% if a.scope %}<code>{{ a.scope }}</code>{% else %}—{% endif %}</td>
+            <td class="mono">{{ a.target | default(value="—") | truncate(length=70) }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">Nothing recorded yet.</p>
+  {% endif %}
+</div>
+
+{% endblock content %}

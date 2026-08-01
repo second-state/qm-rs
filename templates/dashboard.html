@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1>Dashboard</h1>
+<p class="sub">
+  Acting as <code>{{ actor }}</code> · harness <code>{{ harness }}</code> ·
+  posture <span class="badge {% if posture == 'strict' %}ok{% elif posture == 'dangerous' %}danger{% else %}accent{% endif %}">{{ posture }}</span>
+  {% if telegram_enabled %}· <span class="badge ok">telegram</span>{% endif %}
+</p>
+
+<div class="grid">
+  <div class="stat"><div class="n">{{ session_count }}</div><div class="k">Open sessions</div></div>
+  <div class="stat"><div class="n">{{ cron_count }}</div><div class="k">Crons</div></div>
+  <div class="stat"><div class="n">{{ skill_count }}</div><div class="k">Published skills</div></div>
+  <div class="stat"><div class="n">{{ scopes | length }}</div><div class="k">Scopes you reach</div></div>
+</div>
+
+<div class="cols">
+  <div>
+    <h2>Recent sessions</h2>
+    <div class="panel">
+      {% if recent_sessions %}
+        <div class="table-wrap">
+          <table>
+            <tr><th>Session</th><th>Scope</th><th>Active</th></tr>
+            {% for s in recent_sessions %}
+              <tr>
+                <td><a href="/sessions/{{ s.id }}">{{ s.title }}</a> <span class="badge">{{ s.surface }}</span></td>
+                <td><code>{{ s.scope }}</code></td>
+                <td>{{ s.last_activity_at | relative_time }}</td>
+              </tr>
+            {% endfor %}
+          </table>
+        </div>
+      {% else %}
+        <p class="empty">No sessions yet. <a href="/sessions">Start one.</a></p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div>
+    <h2>Scheduled work</h2>
+    <div class="panel">
+      {% if cron_rows %}
+        <div class="table-wrap">
+          <table>
+            <tr><th>Cron</th><th>Schedule</th><th>Next</th></tr>
+            {% for c in cron_rows %}
+              <tr>
+                <td>{{ c.title }}{% if not c.enabled %} <span class="badge warn">off</span>{% endif %}</td>
+                <td class="mono">{{ c.schedule }}</td>
+                <td>{% if c.next %}{{ c.next | relative_time }}{% else %}—{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </table>
+        </div>
+      {% else %}
+        <p class="empty">Nothing scheduled. <a href="/crons">Add a cron.</a></p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<h2>Memory</h2>
+<div class="panel">
+  {% if memory_index %}
+    <div class="table-wrap">
+      <table>
+        <tr><th>Scope</th><th>Size</th><th>Updated</th></tr>
+        {% for m in memory_index %}
+          <tr>
+            <td><a href="/memory/{{ m.scope }}"><code>{{ m.scope }}</code></a></td>
+            <td>{{ m.bytes }} bytes</td>
+            <td>{{ m.updated_at | relative_time }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">The agent has not recorded anything yet.</p>
+  {% endif %}
+</div>
+
+{% endblock content %}

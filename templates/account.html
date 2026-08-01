@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1>Account</h1>
+<p class="sub">
+  Signed in as <code>{{ actor }}</code>{% if email %} · {{ email }}{% endif %}
+  {% if is_admin %}<span class="badge accent">org admin</span>{% endif %}
+</p>
+
+{% if new_key %}
+  <div class="panel" style="border-color:var(--accent)">
+    <h3>Your new API key</h3>
+    <p class="sub">Copy it now — it is shown once and cannot be recovered.</p>
+    <input type="text" class="mono" value="{{ new_key }}" readonly onclick="this.select()">
+    <p class="hint" style="margin-top:10px">Use it as a bearer token:</p>
+    <pre class="mono snippet">curl -X POST {{ "" }}/api/turn \
+  -H "Authorization: Bearer {{ new_key }}" \
+  -H "content-type: application/json" \
+  -d '{"text":"what changed in the deploy?"}'</pre>
+  </div>
+{% endif %}
+
+<h2>API keys</h2>
+<div class="panel">
+  {% if keys %}
+    <div class="table-wrap">
+      <table>
+        <tr><th>Key</th><th>Name</th><th>Created</th><th>Last used</th><th></th></tr>
+        {% for k in keys %}
+          <tr>
+            <td class="mono">{{ k.prefix }}…{% if k.revoked %} <span class="badge danger">revoked</span>{% endif %}</td>
+            <td>{{ k.name | default(value="—") }}</td>
+            <td>{{ k.created_at | relative_time }}</td>
+            <td>{% if k.last_used_at %}{{ k.last_used_at | relative_time }}{% else %}never{% endif %}</td>
+            <td>
+              {% if not k.revoked %}
+                <form method="post" action="/account/keys/revoke" class="inline">
+                  <input type="hidden" name="id" value="{{ k.id }}">
+                  <button class="btn small danger" type="submit">Revoke</button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">No API keys yet.</p>
+  {% endif %}
+
+  <form method="post" action="/account/keys" class="row" style="margin-top:14px">
+    <div>
+      <label for="name">Name a new key</label>
+      <input type="text" id="name" name="name" placeholder="laptop cli">
+    </div>
+    <div class="fixed"><button class="btn primary" type="submit">Create key</button></div>
+  </form>
+  <p class="hint">
+    A key acts as you, with your scopes and your permissions. Keys cannot mint further
+    keys — that has to come from a signed-in browser.
+  </p>
+</div>
+
+<h2>Active sessions</h2>
+<div class="panel">
+  {% if sessions %}
+    <div class="table-wrap">
+      <table>
+        <tr><th>Signed in</th><th>Last seen</th><th>Expires</th><th>Browser</th></tr>
+        {% for s in sessions %}
+          <tr>
+            <td>{{ s.created_at | relative_time }}</td>
+            <td>{{ s.last_seen_at | relative_time }}</td>
+            <td>{{ s.expires_at | relative_time }}</td>
+            <td class="hint">{{ s.user_agent | default(value="—") | truncate(length=60) }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">No active sessions.</p>
+  {% endif %}
+
+  <div class="row" style="margin-top:14px">
+    <form method="post" action="/auth/logout" class="fixed">
+      <button class="btn" type="submit">Sign out</button>
+    </form>
+    <form method="post" action="/auth/logout-everywhere" class="fixed">
+      <button class="btn danger" type="submit">Sign out everywhere</button>
+    </form>
+    <span class="spacer"></span>
+  </div>
+  <p class="hint">Signing out everywhere ends every session, on every device.</p>
+</div>
+
+{% endblock content %}

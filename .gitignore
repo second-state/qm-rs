@@ -1,0 +1,30 @@
+/target
+**/target
+Cargo.lock.orig
+
+# Runtime state: the database, the WAL sidecars, and the per-scope sandboxes.
+/data
+*.db
+*.db-shm
+*.db-wal
+
+# Local configuration carries credentials; config.example.toml is the committed
+# template.
+/config.toml
+.env
+
+# Built plugin modules. The sources under plugins/modules/*/src are committed;
+# the .wasm artifacts are build output.
+/plugins/modules/*.wasm
+
+.DS_Store
+
+# Live e2e credentials.
+.env.e2e
+
+# Live e2e reports: screenshots + real model output.
+/e2e-reports/
+
+# Installed on demand by scripts/e2e_report.sh.
+/node_modules/
+/package-lock.json

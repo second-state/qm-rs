@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1>Files</h1>
+<p class="sub">Durable artifacts owned by a scope, plus what other scopes have shared with you.</p>
+
+<h2>Artifacts</h2>
+<div class="panel">
+  {% if artifacts %}
+    <div class="table-wrap">
+      <table>
+        <tr><th>Name</th><th>Scope</th><th>Type</th><th>Size</th><th>Created</th></tr>
+        {% for f in artifacts %}
+          <tr>
+            <td><a href="/files/{{ f.id }}">{{ f.name }}</a></td>
+            <td><code>{{ f.scope }}</code></td>
+            <td class="mono">{{ f.mimetype }}</td>
+            <td>{{ f.size_bytes }} bytes</td>
+            <td>{{ f.created_at | relative_time }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">No artifacts yet.</p>
+  {% endif %}
+</div>
+
+<h2>Shared with you</h2>
+<div class="panel">
+  {% if handles %}
+    <div class="table-wrap">
+      <table>
+        <tr><th>Appears as</th><th>Owner</th><th>Their path</th><th>Permission</th></tr>
+        {% for h in handles %}
+          <tr>
+            <td class="mono">{{ h.path }}</td>
+            <td><code>{{ h.owner }}</code></td>
+            <td class="mono">{{ h.owner_path }}</td>
+            <td><span class="badge {% if h.permission == 'write' %}accent{% endif %}">{{ h.permission }}</span></td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">Nothing has been shared with you.</p>
+  {% endif %}
+</div>
+
+<h2>Shared by you</h2>
+<div class="panel">
+  {% if shared_by_me %}
+    <div class="table-wrap">
+      <table>
+        <tr><th>Resource</th><th>Shared with</th><th>Permission</th><th>Since</th></tr>
+        {% for g in shared_by_me %}
+          <tr>
+            <td class="mono">{{ g.ref }}</td>
+            <td><code>{{ g.with }}</code></td>
+            <td><span class="badge {% if g.permission == 'write' %}accent{% endif %}">{{ g.permission }}</span></td>
+            <td>{{ g.created_at | relative_time }}</td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">You have not shared anything. Ask the agent to <code>share</code> a file.</p>
+  {% endif %}
+</div>
+
+{% endblock content %}

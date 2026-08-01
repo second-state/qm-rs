@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1>{{ session_title }}</h1>
+<p class="sub">
+  <code>{{ session.scope_id }}</code> · <span class="badge">{{ session.surface }}</span> ·
+  thread <code>{{ session.thread_ref }}</code>
+</p>
+
+{% for a in pending_approvals %}
+  <div class="approval">
+    <strong>This needs your approval</strong>
+    <code class="cmd">{{ a.command }}</code>
+    <p class="hint">{{ a.reason }}{% if a.matched %} · matched <code>{{ a.matched }}</code>{% endif %}</p>
+    <form method="post" action="/sessions/{{ session.id }}/approve" class="choices">
+      <input type="hidden" name="request_id" value="{{ a.request_id }}">
+      <select name="scope" class="fixed" style="max-width:220px">
+        <option value="once">Just this once</option>
+        <option value="session">Every time in this session</option>
+        <option value="always">Always, for me</option>
+      </select>
+      <button class="btn primary" type="submit" name="decision" value="approve">Approve</button>
+      <button class="btn danger" type="submit" name="decision" value="decline">Decline</button>
+    </form>
+  </div>
+{% endfor %}
+
+<div class="transcript">
+  {% for e in entries %}
+    <div class="entry {{ e.type }}">
+      <div class="who">
+        <span>
+          {% if e.type == "user" %}{{ e.author | default(value="someone") }}
+          {% elif e.type == "assistant" %}agent
+          {% elif e.type == "tool_call" %}▸ {{ e.tool | default(value="tool") }}
+          {% elif e.type == "tool_result" %}◂ result
+          {% else %}{{ e.type }}{% endif %}
+        </span>
+        <span>{{ e.created_at | relative_time }}</span>
+      </div>
+      <div class="body">{{ e.text }}</div>
+    </div>
+  {% else %}
+    <p class="empty">Nothing here yet — send the first message.</p>
+  {% endfor %}
+</div>
+
+<div id="live" data-session="{{ session.id }}"></div>
+
+<form method="post" action="/sessions/{{ session.id }}/message" class="composer panel" id="composer">
+  <textarea name="text" placeholder="Ask for something…" required></textarea>
+  <div class="actions">
+    <span class="hint">Enter sends · Shift+Enter for a newline</span>
+    <button class="btn primary" type="submit">Send</button>
+  </div>
+</form>
+
+{% endblock content %}

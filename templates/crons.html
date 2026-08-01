@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1>Crons</h1>
+<p class="sub">Background work that runs while nobody is watching. Each cron keeps its own thread, so the agent sees what it said last time.</p>
+
+<div class="panel">
+  <h3>Schedule something</h3>
+  <form method="post" action="/crons">
+    <div class="row">
+      <div>
+        <label for="scope">Scope</label>
+        <select id="scope" name="scope">
+          {% for s in scopes %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="title">Title (optional)</label>
+        <input type="text" id="title" name="title" placeholder="Morning CI check">
+      </div>
+    </div>
+    <label for="message">What should it do?</label>
+    <textarea id="message" name="message" rows="3" required
+              placeholder="Check whether main is green and summarise anything that broke overnight."></textarea>
+    <div class="row">
+      <div>
+        <label for="cron">Cron expression</label>
+        <input type="text" id="cron" name="cron" placeholder="0 9 * * 1-5">
+      </div>
+      <div>
+        <label for="timezone">Timezone</label>
+        <input type="text" id="timezone" name="timezone" value="{{ default_timezone }}">
+      </div>
+      <div>
+        <label for="every_secs">…or every N seconds</label>
+        <input type="number" id="every_secs" name="every_secs" min="60" placeholder="3600">
+      </div>
+      <div class="fixed"><button class="btn primary" type="submit">Schedule</button></div>
+    </div>
+    <p class="hint">Give one or the other, not both. Five fields: minute hour day-of-month month day-of-week.</p>
+  </form>
+</div>
+
+{% if crons %}
+  {% for c in crons %}
+    <div class="panel">
+      <div class="row">
+        <div>
+          <h3>
+            {{ c.title }}
+            {% if not c.enabled %}<span class="badge warn">disabled</span>{% endif %}
+            {% if c.archived %}<span class="badge">archived</span>{% endif %}
+          </h3>
+          <p class="hint">
+            <code>{{ c.scope }}</code> · <span class="mono">{{ c.schedule }}</span> ·
+            next {% if c.next %}{{ c.next | relative_time }}{% else %}never{% endif %}
+            {% if c.last_fired_at %}· last ran {{ c.last_fired_at | relative_time }}{% endif %}
+          </p>
+        </div>
+        <div class="fixed">
+          <form method="post" action="/crons/{{ c.id }}/toggle" class="inline">
+            <button class="btn small" type="submit">{% if c.enabled %}Disable{% else %}Enable{% endif %}</button>
+          </form>
+          <form method="post" action="/crons/{{ c.id }}/delete" class="inline">
+            <button class="btn small danger" type="submit">Delete</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="entry" style="margin-top:10px"><div class="body">{{ c.message }}</div></div>
+
+      {% if c.fires %}
+        <div class="table-wrap" style="margin-top:10px">
+          <table>
+            <tr><th>Fired</th><th>Status</th><th>Reply</th></tr>
+            {% for f in c.fires %}
+              <tr>
+                <td>{{ f.fired_at | relative_time }}</td>
+                <td>
+                  <span class="badge {% if f.status == 'ok' %}ok{% elif f.status == 'skipped' %}warn{% elif f.status %}danger{% endif %}">
+                    {{ f.status | default(value="running") }}
+                  </span>
+                </td>
+                <td>
+                  {% if f.session_id %}<a href="/sessions/{{ f.session_id }}">{{ f.reply | default(value="(open)") }}</a>
+                  {% else %}{{ f.reply | default(value="—") }}{% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </table>
+        </div>
+      {% endif %}
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="panel"><p class="empty">Nothing scheduled.</p></div>
+{% endif %}
+
+{% endblock content %}

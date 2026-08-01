@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1>Keychain</h1>
+<p class="sub">
+  Per-scope credentials, materialized as environment variables when the agent runs <code>execute</code>.
+  A narrower scope's value overrides a wider one's. Values are never displayed or logged.
+</p>
+
+<div class="panel">
+  {% if entries %}
+    <div class="table-wrap">
+      <table>
+        <tr><th>Key</th><th>Scope</th><th>Description</th><th>Added by</th><th>When</th><th></th></tr>
+        {% for e in entries %}
+          <tr>
+            <td class="mono">{{ e.key }}</td>
+            <td><code>{{ e.scope }}</code></td>
+            <td>{{ e.description | default(value="—") }}</td>
+            <td>{{ e.created_by }}</td>
+            <td>{{ e.created_at | relative_time }}</td>
+            <td>
+              <form method="post" action="/keychain/delete" class="inline">
+                <input type="hidden" name="scope" value="{{ e.scope }}">
+                <input type="hidden" name="key" value="{{ e.key }}">
+                <button class="btn small danger" type="submit">Remove</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">No credentials stored.</p>
+  {% endif %}
+</div>
+
+<h2>Store a credential</h2>
+<div class="panel">
+  <form method="post" action="/keychain">
+    <div class="row">
+      <div>
+        <label for="scope">Scope</label>
+        <select id="scope" name="scope">
+          {% for s in scopes %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="key">Variable name</label>
+        <input type="text" id="key" name="key" placeholder="GITHUB_TOKEN" required>
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="value">Value</label>
+        <input type="password" id="value" name="value" autocomplete="new-password" required>
+      </div>
+      <div>
+        <label for="description">Description</label>
+        <input type="text" id="description" name="description" placeholder="Read-only PAT for CI">
+      </div>
+      <div class="fixed"><button class="btn primary" type="submit">Store</button></div>
+    </div>
+    <p class="hint">
+      Names must be shell-safe: A–Z, 0–9 and <code>_</code>, starting with a letter or <code>_</code>.
+      Stored in the SQLite file as written — see KNOWLEDGE.md on the trust boundary.
+    </p>
+  </form>
+</div>
+
+{% endblock content %}

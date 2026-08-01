@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page_title | default(value="qm") }} · {{ org_name | default(value="qm") }}</title>
+  <link rel="stylesheet" href="/assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A6%AB%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">🦫 {{ org_name | default(value="qm") }}</span>
+    <nav>
+      <a href="/" class="{% if active_nav == 'dashboard' %}active{% endif %}">Dashboard</a>
+      <a href="/sessions" class="{% if active_nav == 'sessions' %}active{% endif %}">Sessions</a>
+      <a href="/memory" class="{% if active_nav == 'memory' %}active{% endif %}">Memory</a>
+      <a href="/skills" class="{% if active_nav == 'skills' %}active{% endif %}">Skills</a>
+      <a href="/crons" class="{% if active_nav == 'crons' %}active{% endif %}">Crons</a>
+      <a href="/files" class="{% if active_nav == 'files' %}active{% endif %}">Files</a>
+      <a href="/keychain" class="{% if active_nav == 'keychain' %}active{% endif %}">Keychain</a>
+      {% if is_admin %}
+        <a href="/admin" class="{% if active_nav == 'admin' %}active{% endif %}">Admin</a>
+      {% endif %}
+    </nav>
+    <span class="spacer"></span>
+    <span class="whoami">
+      <a href="/account" class="{% if active_nav == 'account' %}active{% endif %}"
+         title="{{ actor_email | default(value=actor) }}">
+        {{ actor_name | default(value=actor) }}
+      </a>
+      <form method="post" action="/auth/logout" class="inline">
+        <button class="btn small" type="submit">Sign out</button>
+      </form>
+    </span>
+  </header>
+
+  {% if flash %}<div class="flash">{{ flash }}</div>{% endif %}
+
+  <main>
+    {% block content %}{% endblock content %}
+  </main>
+
+  <script src="/assets/app.js"></script>
+  {% block scripts %}{% endblock scripts %}
+</body>
+</html>

@@ -1,0 +1,255 @@
+# qm-rs configuration.
+#
+# Copy to config.toml and edit. Every section is optional: with no config file
+# at all the server boots on 127.0.0.1:8080 with the mock harness, which needs
+# no credentials and no network.
+#
+# Secrets can be supplied through QM_* environment variables instead, which
+# take precedence over anything here — see "Environment overrides" at the end.
+
+# ── Server ──────────────────────────────────────────────────────────────────
+[server]
+host = "127.0.0.1"
+port = 8080
+
+# ── Database ────────────────────────────────────────────────────────────────
+[database]
+# SQLite file. Created on first boot, migrated on every boot. Its parent
+# directory is created if missing.
+path = "data/qm.db"
+
+# ── Organization ────────────────────────────────────────────────────────────
+[org]
+id = "local"
+name = "QM"
+
+# The floor every scope composes over. A scope may TIGHTEN this, never loosen
+# it (policy::security::compose_posture).
+#
+#   strict     — every tool call pauses for a human to approve it
+#   auto       — external content and tool output are screened (default)
+#   dangerous  — no screening, no pauses
+#
+# The predeclared command policy applies in every posture, `dangerous`
+# included: recursive deletes and force pushes still ask, `mkfs` and fork
+# bombs are still denied.
+security_posture = "auto"
+
+# Principal id the web UI acts as by default, and the owner of the org scope.
+admin = "admin"
+
+# Appended to every resolved system prompt, in every scope.
+# system_prompt = "We are a small team. Prefer short answers and cite sources."
+
+timezone = "UTC"
+
+# ── Harness ─────────────────────────────────────────────────────────────────
+# What drives a turn's conversation with a model.
+[harness]
+# "mock"   — deterministic, in-process, no network. Reads directives out of
+#            the message text (!exec, !read, !write, !remember, !recall,
+#            !tool, !silent). This is what the tests and tests/smoke_test.sh
+#            run against.
+# "openai" — any OpenAI-compatible /v1/chat/completions endpoint with tool
+#            calling: OpenAI, an internal gateway, a local server.
+kind = "mock"
+
+# Required for kind = "openai". Include the /v1 suffix. There is deliberately
+# no default: a missing endpoint is a refusal, not a guess.
+# endpoint = "https://your-gateway.example.com/v1"
+
+# Prefer the env var over putting the key in this file.
+# api_key = "sk-..."
+api_key_env = "QM_HARNESS_API_KEY"
+
+model = "openai/gpt-5.4"
+# A cheaper model for the utility calls — session titles, security screening.
+# Defaults to `model`.
+# utility_model = "openai/gpt-5.4-mini"
+
+# Wall-clock cap for one turn.
+timeout_secs = 600
+# Cap on model round-trips per turn — the tool-loop bound.
+max_steps = 24
+max_tokens = 8192
+
+# ── Sandbox ─────────────────────────────────────────────────────────────────
+# Each scope gets a durable directory here. `execute` runs there; anything the
+# agent installs stays installed.
+#
+# Isolation is path confinement, not kernel-level: commands run as the server's
+# own user. That is why the command policy is not optional.
+[sandbox]
+root_dir = "data/scopes"
+exec_timeout_secs = 120
+# Bytes of combined stdout+stderr handed back per call. The tail is kept.
+max_output_bytes = 32000
+
+# ── Memory ──────────────────────────────────────────────────────────────────
+[memory]
+# off | writable | visible — how much of a scope's notebook a turn may read.
+recall = "visible"
+# off | writable
+capture = "writable"
+
+# ── Crons ───────────────────────────────────────────────────────────────────
+[cron]
+enabled = true
+tick_seconds = 30
+default_timezone = "UTC"
+# A fire more than this far behind schedule is skipped rather than run late,
+# so a restart after an outage does not stampede. The schedule still advances.
+max_catchup_secs = 3600
+
+# ── Sign-in ─────────────────────────────────────────────────────────────────
+# People sign in with an emailed magic link; programs use bearer API keys
+# minted from the account page. Sessions, links and keys are stored only as
+# SHA-256 hashes, so database access does not hand anyone a live credential.
+[auth]
+# Where sign-in links point. Must be reachable by whoever clicks one — change
+# this the moment the server is not on localhost.
+public_url = "http://127.0.0.1:8080"
+product_name = "QM"
+
+# WHO MAY SIGN IN. With none of the three set, nobody can — the server warns
+# loudly at boot. With only `admin_email` set, that address is the only one
+# admitted; "anyone with an email address" is never the default.
+#
+# `admin_email` should match [org].admin, and is attached to that principal on
+# first boot so the configured admin signs in as themselves.
+admin_email = "you@example.com"
+# allowed_emails = ["contractor@other.test"]
+# allowed_domains = ["example.com"]        # matched exactly, never as a suffix
+
+# "console" writes the sign-in link to the server log — no mail provider
+# needed, and how a first run or `tests/smoke_test.sh` signs in.
+# "resend" posts to the Resend API.
+email_mode = "console"
+# from_address = "qm@example.com"          # required for resend; must be verified
+# email_api_key = "re_..."                 # prefer the env var below
+email_api_key_env = "QM_EMAIL_API_KEY"
+
+login_token_ttl_secs = 900                 # 15 minutes
+session_ttl_secs = 1209600                 # 14 days
+max_requests_per_window = 5                # sign-in links per address...
+request_window_secs = 600                  # ...per this window
+
+# Adopted as an API key for [org].admin on first boot, only while no key
+# exists. Lets a fresh install be driven by script before anyone has signed in.
+# Prefer the QM_BOOTSTRAP_API_KEY env var, and revoke it once real keys exist.
+# bootstrap_api_key = "..."
+
+# ── Slack ───────────────────────────────────────────────────────────────────
+# Socket Mode by default: an outbound WebSocket, so no public URL and no
+# inbound port — the same shape as the Telegram connector.
+#
+# A DM maps to the sender's personal scope; a channel maps to
+# `channel:slack-<channel_id>`, and each Slack thread gets its own session.
+[slack]
+enabled = false
+
+# Bot token (xoxb-…) from OAuth & Permissions. Needs: app_mentions:read,
+# channels:history, chat:write, im:history, users:read.
+# bot_token = "xoxb-..."
+bot_token_env = "QM_SLACK_BOT_TOKEN"
+
+# App-level token (xapp-…) with connections:write. Required for Socket Mode.
+# app_token = "xapp-..."
+app_token_env = "QM_SLACK_APP_TOKEN"
+
+# Signing secret from Basic Information. Required for mode = "events"; every
+# inbound request is verified against it before anything in the body is read.
+# signing_secret = "..."
+signing_secret_env = "QM_SLACK_SIGNING_SECRET"
+
+# "socket" (default, no public URL) or "events" (Slack POSTs to /slack/events).
+mode = "socket"
+api_base = "https://slack.com/api"
+
+# When non-empty, only these channel ids are served.
+# allowed_channels = ["C01234567"]
+
+# Map Slack user ids to principal ids. An unmapped sender becomes a guest
+# principal `slack:<user_id>`.
+# [slack.principals]
+# "U01234567" = "ada"
+
+# Require an @mention before answering in a channel. DMs always answer.
+# require_mention_in_channels = true
+
+# ── Telegram ────────────────────────────────────────────────────────────────
+# Long-polls getUpdates with a bot token. No webhook, no public URL, no
+# inbound port — the connector only dials out.
+#
+# Get a token from @BotFather. A private chat maps to the sender's personal
+# scope; a group maps to `channel:tg-<chat_id>`, so what the agent learns in a
+# group belongs to the group.
+[telegram]
+enabled = false
+# bot_token = "123456:ABC-DEF..."
+bot_token_env = "QM_TELEGRAM_BOT_TOKEN"
+api_base = "https://api.telegram.org"
+poll_timeout_secs = 50
+
+# A bot is addressable by anyone who knows its handle. Leave this empty only
+# for a bot nobody else can find.
+# allowed_chat_ids = [123456789, -1001234567890]
+
+# Map Telegram user ids to principal ids. An unmapped sender becomes a guest
+# principal `telegram:<user_id>`.
+# [telegram.principals]
+# "123456789" = "ada"
+
+# Require an @mention before answering in a group.
+# require_mention_in_groups = true
+
+# ── Plugins ─────────────────────────────────────────────────────────────────
+# WasmEdge extension points. Requires a build with `--features wasm`; without
+# it, configured modules are reported as inert on /admin rather than silently
+# ignored.
+#
+# Modules are .wasm files under `dir`, written against `plugins/qm_plugin_sdk`.
+# See plugins/modules/example_guard for a working one.
+[plugins]
+dir = "plugins/modules"
+timeout_ms = 5000
+
+# Run before every turn, in order. Each may rewrite the text, route the turn
+# to another model, or append to the system prompt. Last writer wins on
+# scalars; system_suffix accumulates.
+# turn_middleware = ["example_guard.wasm"]
+
+# A deployment's own security screener, run instead of the model one. A module
+# that fails or returns anything but "auto" fails CLOSED.
+# screener = "example_guard.wasm"
+
+# Custom agent tools, appended to the built-in surface. A plugin may not shadow
+# a built-in tool name.
+# [[plugins.tools]]
+# name = "lookup_order"
+# description = "Look up an order by id in the warehouse system"
+# module = "orders.wasm"
+# parameters = '{"type":"object","properties":{"order_id":{"type":"string"}},"required":["order_id"]}'
+# # Offer it only in these scopes. Omit for all scopes.
+# scopes = ["channel:support"]
+
+# ── Environment overrides ───────────────────────────────────────────────────
+# These win over the file, so secrets can stay out of it:
+#
+#   QM_CONFIG                path to this file (default ./config.toml)
+#   QM_PORT                  [server].port
+#   QM_DATABASE_PATH         [database].path
+#   QM_SECURITY_POSTURE      [org].security_posture
+#   QM_HARNESS_KIND          [harness].kind
+#   QM_HARNESS_ENDPOINT      [harness].endpoint
+#   QM_HARNESS_API_KEY       [harness].api_key
+#   QM_HARNESS_MODEL         [harness].model
+#   QM_TELEGRAM_BOT_TOKEN    [telegram].bot_token, and enables the connector
+#   QM_SLACK_BOT_TOKEN       [slack].bot_token, and enables the connector
+#   QM_SLACK_APP_TOKEN       [slack].app_token
+#   QM_SLACK_SIGNING_SECRET  [slack].signing_secret
+#   QM_PUBLIC_URL            [auth].public_url
+#   QM_ADMIN_EMAIL           [auth].admin_email
+#   QM_EMAIL_API_KEY         [auth].email_api_key
+#   QM_BOOTSTRAP_API_KEY     [auth].bootstrap_api_key
+#   RUST_LOG                 log filter, e.g. qm_rs=debug

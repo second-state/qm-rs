@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1>{{ name }}</h1>
+<p class="sub">
+  <code>{{ scope }}</code> ·
+  <span class="badge {% if status == 'published' %}ok{% else %}warn{% endif %}">{{ status }}</span> ·
+  version {{ version }} ·
+  {% if verified %}<span class="badge ok">signature ok</span>{% else %}<span class="badge danger">signature invalid</span>{% endif %}
+  {% for c in unmet %}<span class="badge warn">needs {{ c }}</span>{% endfor %}
+</p>
+
+{% if not verified %}
+  <div class="approval">
+    <strong>This skill's signature does not verify.</strong>
+    <p class="hint">Its stored rows were changed outside the app. It is hidden from every turn until it is saved again.</p>
+  </div>
+{% endif %}
+
+<form method="post" action="/skills/{{ skill_id }}" class="panel">
+  <label for="source">SKILL.md</label>
+  <textarea id="source" name="source" rows="20">{{ source }}</textarea>
+  <div class="actions" style="margin-top:10px">
+    <span class="hint">Saving re-signs the skill, bumps its version, and returns it to draft.</span>
+    <button class="btn primary" type="submit">Save</button>
+  </div>
+</form>
+
+<div class="panel">
+  <h3>Status</h3>
+  <div class="row">
+    {% for target in ["draft", "reviewed", "published", "archived"] %}
+      <form method="post" action="/skills/{{ skill_id }}/status" class="fixed">
+        <input type="hidden" name="status" value="{{ target }}">
+        <button class="btn {% if target == 'published' %}primary{% endif %}" type="submit"
+                {% if status == target %}disabled{% endif %}>{{ target }}</button>
+      </form>
+    {% endfor %}
+    <span class="spacer"></span>
+    <form method="post" action="/skills/{{ skill_id }}/delete" class="fixed">
+      <button class="btn danger" type="submit">Delete</button>
+    </form>
+  </div>
+</div>
+
+{% endblock content %}

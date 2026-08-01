@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1>Sessions</h1>
+<p class="sub">Each session is one thread in one scope. Personal scopes are private; channel scopes are shared.</p>
+
+<div class="panel">
+  <h3>Start a session</h3>
+  <form method="post" action="/sessions" class="row">
+    <div>
+      <label for="scope">Scope</label>
+      <select id="scope" name="scope">
+        {% for s in scopes %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="title">Title (optional)</label>
+      <input type="text" id="title" name="title" placeholder="Deploy checklist">
+    </div>
+    <div class="fixed"><button class="btn primary" type="submit">Start</button></div>
+  </form>
+</div>
+
+<div class="panel">
+  {% if sessions %}
+    <div class="table-wrap">
+      <table>
+        <tr><th>Session</th><th>Scope</th><th>Surface</th><th>Active</th><th></th></tr>
+        {% for s in sessions %}
+          <tr>
+            <td>
+              <a href="/sessions/{{ s.id }}">{{ s.title }}</a>
+              {% if s.archived %}<span class="badge warn">archived</span>{% endif %}
+            </td>
+            <td><code>{{ s.scope }}</code></td>
+            <td><span class="badge">{{ s.surface }}</span></td>
+            <td>{{ s.last_activity_at | relative_time }}</td>
+            <td>
+              <form method="post" action="/sessions/{{ s.id }}/archive" class="inline">
+                <button class="btn small" type="submit">{% if s.archived %}Restore{% else %}Archive{% endif %}</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">No sessions yet.</p>
+  {% endif %}
+</div>
+
+{% endblock content %}

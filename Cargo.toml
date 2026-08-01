@@ -1,0 +1,69 @@
+[package]
+name = "qm_rs"
+version = "0.1.0"
+edition = "2021"
+description = "A multiplayer agent harness for work — Rust core on local SQLite, with a server-rendered web UI and a Telegram connector."
+license = "MIT"
+
+[dependencies]
+# Web framework
+axum = { version = "0.7", features = ["multipart"] }
+tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tower-http = { version = "0.5", features = ["trace"] }
+
+# Database
+rusqlite = { version = "0.31", features = ["bundled"] }
+r2d2 = "0.8"
+r2d2_sqlite = "0.24"
+
+# Templates + serialization
+tera = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Utilities
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+rand = "0.8"
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+chrono-tz = "0.9"
+uuid = { version = "1", features = ["v4"] }
+thiserror = "1"
+regex = "1"
+sha2 = "0.10"
+hmac = "0.12"
+
+# HTTP client for model gateways and the Telegram Bot API
+reqwest = { version = "0.12", features = ["json"] }
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Plugin host (optional). Extension points only — per-scope agent tools, the
+# turn middleware chain, and the security screener. Surfaces (web UI, Telegram)
+# are native in-process Rust: they are I/O-driven daemons, not pure functions.
+# Not available on every target (e.g. musl), hence the feature gate.
+wasmedge-sdk = { version = "0.14", default-features = false, optional = true }
+wasmedge-sys = { version = "0.19", default-features = false, optional = true }
+base64 = "0.22"
+
+[features]
+default = []
+# `standalone` downloads a WasmEdge release at build time; `wasm-static` links
+# it in instead, for a single self-contained binary. crates.io names that
+# feature `static` (the git tag used by cloud_ai_gateway calls it `bundled`).
+wasm = ["dep:wasmedge-sdk", "dep:wasmedge-sys", "wasmedge-sdk/standalone"]
+wasm-static = ["dep:wasmedge-sdk", "dep:wasmedge-sys", "wasmedge-sdk/static"]
+
+[dev-dependencies]
+tempfile = "3"
+
+# The plugin SDK is built for wasm32-wasip1 by module authors, never linked
+# into the server, so it stays out of the dependency graph here.
+[workspace]
+members = []
+exclude = ["plugins"]
