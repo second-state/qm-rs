@@ -8,7 +8,7 @@
 //! install is a real deployment shape, and reading your own log is a
 //! reasonable way to sign in to it.
 
-use crate::config::AuthConfig;
+use crate::config::EmailConfig;
 use crate::error::{AppError, AppResult};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,47 +21,58 @@ pub enum Delivery {
 
 pub struct Mailer {
     client: reqwest::Client,
-    config: AuthConfig,
+    config: EmailConfig,
+    /// Used in the subject line; comes from `[auth].product_name`.
+    product_name: String,
+    /// Quoted in the body so the reader knows how long they have.
+    ttl_secs: i64,
 }
 
 /// Hand-written so a derived `Debug` cannot print the Resend key.
 impl std::fmt::Debug for Mailer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Mailer")
-            .field("mode", &self.config.email_mode)
-            .field("from", &self.config.from_address)
+            .field("mode", &self.config.mode)
+            .field("from", &self.config.from_header())
             .field(
                 "api_key",
-                &self.config.resolve_email_api_key().map(|_| "<redacted>"),
+                &self.config.resolve_api_key().map(|_| "<redacted>"),
             )
             .finish()
     }
 }
 
 impl Mailer {
-    pub fn new(config: AuthConfig) -> AppResult<Self> {
+    pub fn new(config: EmailConfig, product_name: String, ttl_secs: i64) -> AppResult<Self> {
         Ok(Self {
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(20))
                 .build()?,
             config,
+            product_name,
+            ttl_secs,
         })
     }
 
     /// Whether this mailer will actually deliver mail.
     pub fn sends_mail(&self) -> bool {
-        self.config.email_mode.trim().eq_ignore_ascii_case("resend")
-            && self.config.resolve_email_api_key().is_some()
+        self.config.sends_mail()
     }
 
     pub fn describe(&self) -> String {
         if self.sends_mail() {
+            let from = self.config.from_address.trim();
+            if from.is_empty() {
+                "resend, but [email].from_address is unset — sending will fail".to_string()
+            } else {
+                format!("resend, from {}", self.config.from_header())
+            }
+        } else if self.config.mode.trim().eq_ignore_ascii_case("resend") {
             format!(
-                "resend, from {}",
-                self.config.from_address.as_deref().unwrap_or("(unset)")
+                "resend configured but no API key — set [email].api_key or the {} env var; \
+                 falling back to the log",
+                self.config.api_key_env
             )
-        } else if self.config.email_mode.eq_ignore_ascii_case("resend") {
-            "resend configured but no API key — falling back to the log".to_string()
         } else {
             "console — sign-in links are written to the log".to_string()
         }
@@ -85,11 +96,15 @@ impl Mailer {
 
         let key = self
             .config
-            .resolve_email_api_key()
+            .resolve_api_key()
             .ok_or_else(|| AppError::internal("no email API key"))?;
-        let from = self.config.from_address.as_deref().ok_or_else(|| {
-            AppError::bad_request("[auth].from_address is required when email_mode = \"resend\"")
-        })?;
+        if self.config.from_address.trim().is_empty() {
+            return Err(AppError::bad_request(
+                "[email].from_address is required when mode = \"resend\", and must be a sender \
+                 you have verified with the provider",
+            ));
+        }
+        let from = self.config.from_header();
 
         let response = self
             .client
@@ -98,9 +113,9 @@ impl Mailer {
             .json(&serde_json::json!({
                 "from": from,
                 "to": [email],
-                "subject": format!("Sign in to {}", self.config.product_name),
-                "text": text_body(&self.config.product_name, link, self.config.login_token_ttl_secs),
-                "html": html_body(&self.config.product_name, link, self.config.login_token_ttl_secs),
+                "subject": format!("Sign in to {}", self.product_name),
+                "text": text_body(&self.product_name, link, self.ttl_secs),
+                "html": html_body(&self.product_name, link, self.ttl_secs),
             }))
             .send()
             .await?;
@@ -162,19 +177,23 @@ fn escape(value: &str) -> String {
 mod tests {
     use super::*;
 
-    fn config(mode: &str, key: Option<&str>) -> AuthConfig {
-        AuthConfig {
-            email_mode: mode.into(),
-            email_api_key: key.map(str::to_string),
-            email_api_key_env: "QM_TEST_EMAIL_KEY_ABSENT".into(),
-            from_address: Some("qm@acme.test".into()),
-            ..AuthConfig::default()
+    fn config(mode: &str, key: Option<&str>) -> EmailConfig {
+        EmailConfig {
+            mode: mode.into(),
+            api_key: key.unwrap_or("").to_string(),
+            api_key_env: "QM_TEST_EMAIL_KEY_ABSENT".into(),
+            from_address: "qm@acme.test".into(),
+            from_name: "QM".into(),
         }
+    }
+
+    fn mailer(mode: &str, key: Option<&str>) -> Mailer {
+        Mailer::new(config(mode, key), "QM".into(), 900).unwrap()
     }
 
     #[tokio::test]
     async fn console_mode_logs_the_link_rather_than_sending() {
-        let mailer = Mailer::new(config("console", None)).unwrap();
+        let mailer = mailer("console", None);
         assert!(!mailer.sends_mail());
         assert_eq!(
             mailer
@@ -191,7 +210,7 @@ mod tests {
 
     #[tokio::test]
     async fn resend_without_a_key_falls_back_to_logging_rather_than_failing_sign_in() {
-        let mailer = Mailer::new(config("resend", None)).unwrap();
+        let mailer = mailer("resend", None);
         assert!(!mailer.sends_mail());
         assert_eq!(
             mailer
@@ -205,14 +224,14 @@ mod tests {
 
     #[test]
     fn a_configured_resend_mailer_reports_that_it_sends() {
-        let mailer = Mailer::new(config("resend", Some("re_test"))).unwrap();
+        let mailer = mailer("resend", Some("re_test"));
         assert!(mailer.sends_mail());
         assert!(mailer.describe().contains("qm@acme.test"));
     }
 
     #[test]
     fn debug_never_prints_the_api_key() {
-        let mailer = Mailer::new(config("resend", Some("re_supersecret"))).unwrap();
+        let mailer = mailer("resend", Some("re_supersecret"));
         let rendered = format!("{mailer:?}");
         assert!(!rendered.contains("re_supersecret"));
         assert!(rendered.contains("redacted"));

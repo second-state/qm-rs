@@ -34,13 +34,14 @@ Set `[auth].admin_email` in `config.toml` to your own address before you start, 
 3. [Put them both in a group](#put-them-both-in-a-group)
 4. [Ada works with the agent privately](#ada-works-with-the-agent-privately)
 5. [The whole group works together](#the-whole-group-works-together)
+6. [Give the agent a tool of your own](#give-the-agent-a-tool-of-your-own)
 
 ---
 
 ## Sign in as the administrator
 
 
-qm has no passwords. You sign in with a link sent to your email address, which works exactly once and expires after fifteen minutes. On a fresh install the administrator is whoever `[auth].admin_email` names in `config.toml` — start the server, then follow along.
+qm has no passwords. You sign in with a link sent to your email address, which works exactly once and expires after fifteen minutes. On a fresh install the administrator is whoever `[auth].admin_email` names in `config.toml`; the `[email]` section is where you point it at your mail provider. Start the server, then follow along.
 
 **1.** Open **http://127.0.0.1:8080** in a browser. You will be redirected to the sign-in page, because every page in qm requires you to be signed in.
 
@@ -52,9 +53,9 @@ qm has no passwords. You sign in with a link sent to your email address, which w
 
 > You always get the same confirmation page, whether or not that address is allowed to sign in. That is deliberate: a different response for an unknown address would let anyone test whether a person works at your company.
 
-**3.** Find the link. With the default `email_mode = "console"` there is no mail provider, so the link is written to the server log instead — look for a line containing `sign-in link`. To send real email, set `email_mode = "resend"`, a verified `from_address`, and the `QM_EMAIL_API_KEY` environment variable.
+**3.** Open the link in your inbox. It works once and expires after fifteen minutes; request another whenever you need one.
 
-**4.** Open the link. You are signed in, and the **Admin** tab appears in the navigation — it is only shown to the administrator.
+**4.** You are signed in, and the **Admin** tab appears in the navigation — it is only shown to the administrator.
 
 ![The Admin page. It shows which model is driving turns, the security posture, the applied database migrations, the command-policy floor, and a durable audit log of everything the agent has done.](02.png)
 
@@ -170,6 +171,57 @@ Finally, the multiplayer part. Ada brings her work into the group, and Dana — 
 
 ---
 
+## Give the agent a tool of your own
+
+
+The tool surface is small and fixed on purpose, but a deployment almost always needs a verb that reaches into something only it has — an internal API, a registry, a database. Those run as **WebAssembly modules**: a module is a pure function over bytes, so it gets the model's arguments and returns text, and cannot touch the host's filesystem, network or database except through what you compile into it.
+
+> A module is a small Rust crate built against `plugins/qm_plugin_sdk`. The one installed here is `plugins/modules/service_registry` — an ops service registry that answers who owns a service, where its runbook is, and who is on call:
+
+```rust
+use qm_plugin_sdk::{PluginRequest, PluginResponse};
+
+qm_plugin_sdk::handler!(process);
+
+fn process(request: PluginRequest) -> PluginResponse {
+    let service = request.arg("service").unwrap_or("");
+    PluginResponse::output(look_up(service))
+}
+```
+
+**1.** Build the module for WebAssembly: `cd plugins/modules/service_registry && cargo build --release --target wasm32-wasip1`, then copy the resulting `.wasm` into your plugin directory.
+
+**2.** Declare it as a tool in `config.toml`, giving it the name and JSON Schema the model will see:
+
+```toml
+[plugins]
+dir = "plugins/modules"
+
+[[plugins.tools]]
+name = "lookup_service"
+description = "Look up who owns a service, its runbook, and who is on call."
+module = "service_registry.wasm"
+parameters = '{"type":"object","properties":{"service":{"type":"string"}},"required":["service"]}'
+```
+
+**3.** Build the server with the plugin runtime — `cargo build --release --features wasm` — and restart it. Without that feature the module is reported as inert rather than silently ignored.
+
+**4.** Check **Admin**. The Plugins panel lists every configured module and whether it actually loaded.
+
+![The Plugins panel: `service_registry.wasm` is loaded and offering `lookup_service` to every scope. A missing file would show as MISSING here, and a build without the wasm feature would show every module as inert.](13.png)
+
+*The Plugins panel: `service_registry.wasm` is loaded and offering `lookup_service` to every scope. A missing file would show as MISSING here, and a build without the wasm feature would show every module as inert.*
+
+**5.** That is all — the agent now has the tool. Ask it something only the registry can answer.
+
+![The agent called `lookup_service` and answered from the registry. The call and its result are ordinary transcript entries — a plugin tool is not a second class of thing.](14.png)
+
+*The agent called `lookup_service` and answered from the registry. The call and its result are ordinary transcript entries — a plugin tool is not a second class of thing.*
+
+> Each call gets a fresh instance, so one scope's call cannot observe or corrupt another's. A module that fails is logged and skipped rather than failing the turn, and a plugin may not shadow a built-in tool — `execute` always means `execute`. Modules can also answer two other hooks: `turn.before`, to rewrite a turn or route it to a different model, and `screen`, to run your own security classifier instead of the built-in one.
+
+---
+
 ## Where to go next
 
 - **Skills** — write a reusable instruction bundle the agent follows. Skills are scoped and
@@ -182,6 +234,6 @@ Finally, the multiplayer part. Ada brings her work into the group, and Dana — 
 
 ---
 
-*Generated on 2026-08-02T20:51:10Z from a real run against `openai/gpt-5.6-sol`. Every screenshot is the actual
+*Generated on 2026-08-02T22:06:47Z from a real run against `openai/gpt-5.6-sol`. Every screenshot is the actual
 application and every agent reply is a real model turn — regenerate with
 `bash scripts/tutorial.sh`.*

@@ -56,10 +56,16 @@ kind = "mock"
 
 # Required for kind = "openai". Include the /v1 suffix. There is deliberately
 # no default: a missing endpoint is a refusal, not a guess.
-# endpoint = "https://your-gateway.example.com/v1"
+endpoint = ""                       # e.g. "https://your-gateway.example.com/v1"
 
-# Prefer the env var over putting the key in this file.
-# api_key = "sk-..."
+# THE MODEL API KEY. Set it here, or leave it empty and put it in the env var
+# named below — whichever suits how you deploy. The file is checked first, and
+# an empty string means "not set", so the field can stay visible as
+# documentation without shadowing the environment.
+#
+# config.toml is gitignored for exactly this reason. If you would rather no
+# secret touched disk at all, leave this empty and export QM_HARNESS_API_KEY.
+api_key = ""                        # e.g. "sk-..." or "gw-..."
 api_key_env = "QM_HARNESS_API_KEY"
 
 model = "openai/gpt-5.4"
@@ -137,14 +143,6 @@ admin_email = "you@example.com"
 # allowed_emails = ["contractor@other.test"]
 # allowed_domains = ["example.com"]        # matched exactly, never as a suffix
 
-# "console" writes the sign-in link to the server log — no mail provider
-# needed, and how a first run or `tests/smoke_test.sh` signs in.
-# "resend" posts to the Resend API.
-email_mode = "console"
-# from_address = "qm@example.com"          # required for resend; must be verified
-# email_api_key = "re_..."                 # prefer the env var below
-email_api_key_env = "QM_EMAIL_API_KEY"
-
 login_token_ttl_secs = 900                 # 15 minutes
 session_ttl_secs = 1209600                 # 14 days
 max_requests_per_window = 5                # sign-in links per address...
@@ -154,6 +152,30 @@ request_window_secs = 600                  # ...per this window
 # exists. Lets a fresh install be driven by script before anyone has signed in.
 # Prefer the QM_BOOTSTRAP_API_KEY env var, and revoke it once real keys exist.
 # bootstrap_api_key = "..."
+
+# ── Email (Resend) ──────────────────────────────────────────────────────────
+# How sign-in links reach people.
+#
+#   console — the link is written to the server log instead of being sent. No
+#             provider, no credentials; this is how a first run and
+#             tests/smoke_test.sh sign in. Perfectly usable for a
+#             single-operator install: reading your own log is a fine way to
+#             sign in to your own server.
+#   resend  — posts to https://resend.com. Get a key at
+#             https://resend.com/api-keys and verify a sending domain first;
+#             an unverified sender is rejected by the provider.
+[email]
+mode = "console"
+
+# Set the key here, or leave it empty and use the env var named below. The file
+# is checked first; an empty string means "not set".
+api_key = ""                               # re_...
+api_key_env = "QM_EMAIL_API_KEY"
+
+# Required when mode = "resend". Must be an address on a domain you have
+# verified with the provider.
+from_address = ""                          # e.g. "qm@your-domain.com"
+from_name = "QM"
 
 # ── Slack ───────────────────────────────────────────────────────────────────
 # Socket Mode by default: an outbound WebSocket, so no public URL and no
@@ -266,6 +288,7 @@ timeout_ms = 5000
 #   QM_SLACK_SIGNING_SECRET  [slack].signing_secret
 #   QM_PUBLIC_URL            [auth].public_url
 #   QM_ADMIN_EMAIL           [auth].admin_email
-#   QM_EMAIL_API_KEY         [auth].email_api_key
+#   QM_EMAIL_API_KEY         [email].api_key
+#   QM_EMAIL_FROM            [email].from_address
 #   QM_BOOTSTRAP_API_KEY     [auth].bootstrap_api_key
 #   RUST_LOG                 log filter, e.g. qm_rs=debug

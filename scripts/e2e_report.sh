@@ -101,9 +101,11 @@ root_dir = "$TMP/scopes"
 [cron]
 enabled = false
 
+[email]
+mode = "console"
+
 [auth]
 admin_email = "ada@acme.test"
-email_mode = "console"
 public_url = "$BASE"
 EOF
 

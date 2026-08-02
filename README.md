@@ -84,7 +84,8 @@ the real tool surface without a model:
 !exec rm -rf build         → pauses for approval (the command policy)
 ```
 
-To use a real model, point it at any OpenAI-compatible endpoint:
+To use a real model, point it at any OpenAI-compatible endpoint with tool
+calling:
 
 ```toml
 # config.toml
@@ -92,10 +93,15 @@ To use a real model, point it at any OpenAI-compatible endpoint:
 kind = "openai"
 endpoint = "https://your-gateway.example.com/v1"
 model = "openai/gpt-5.4"
+api_key = "gw-..."          # or leave empty and export QM_HARNESS_API_KEY
 ```
 
+Every credential works the same way: set it in `config.toml`, **or** leave the
+field empty and put it in the env var named beside it. The file is checked
+first, and an empty string means "not set", so the field can stay visible as
+documentation without shadowing the environment. `config.toml` is gitignored.
+
 ```bash
-export QM_HARNESS_API_KEY=sk-...
 cargo run --release
 ```
 
@@ -149,7 +155,9 @@ admin = "ada"
 [auth]
 admin_email = "ada@example.com"
 public_url = "http://127.0.0.1:8080"
-email_mode = "console"     # the link goes to the server log
+
+[email]
+mode = "console"           # the link goes to the server log
 ```
 
 Enter the address, and the sign-in link appears in the log:
@@ -159,8 +167,23 @@ WARN qm_rs::auth::email: sign-in link (console mode; treat this as a password):
      http://127.0.0.1:8080/auth/callback?token=...
 ```
 
-For real email, set `email_mode = "resend"`, a verified `from_address`, and
-`QM_EMAIL_API_KEY`.
+Console mode is not a placeholder — for a single-operator install, reading your
+own log is a perfectly good way to sign in to your own server.
+
+To send real email, use [Resend](https://resend.com): get a key from
+[resend.com/api-keys](https://resend.com/api-keys) and verify a sending domain
+first, because an unverified sender is rejected by the provider.
+
+```toml
+[email]
+mode = "resend"
+api_key = "re_..."                  # or leave empty and export QM_EMAIL_API_KEY
+from_address = "qm@your-domain.com" # must be on a domain you verified
+from_name = "Acme QM"
+```
+
+`public_url` under `[auth]` is what sign-in links point back at, so set it to
+something the recipient can actually reach.
 
 > **Nobody can sign in until you say who may.** With no `admin_email`,
 > `allowed_emails` or `allowed_domains`, every address is refused and the server
@@ -354,6 +377,19 @@ QM's plugins are two different things, and qm-rs treats them differently:
 cargo build --release --features wasm
 ```
 
+> `wasmedge-sdk/standalone` downloads the runtime at build time but does not
+> bake an rpath into the binary, so the dynamic loader needs to be told where it
+> landed:
+>
+> ```bash
+> export DYLD_FALLBACK_LIBRARY_PATH="$HOME/.wasmedge/lib"   # macOS
+> export LD_LIBRARY_PATH="$HOME/.wasmedge/lib"              # Linux
+> ```
+>
+> `--features wasm-static` links it in instead, for a single self-contained
+> binary. `scripts/tutorial.sh` resolves the path itself, and is a working
+> reference for the whole flow.
+
 Write a module against `plugins/qm_plugin_sdk`:
 
 ```rust
@@ -377,6 +413,11 @@ cd plugins/modules/example_guard
 cargo build --release --target wasm32-wasip1
 cp target/wasm32-wasip1/release/example_guard.wasm ../
 ```
+
+Two worked examples ship in `plugins/modules/`: `service_registry` adds a custom
+agent tool (and is the one the
+[tutorial installs](https://second-state.github.io/qm-rs/#c5)), and
+`example_guard` answers the `screen` and `turn.before` hooks.
 
 ```toml
 [plugins]

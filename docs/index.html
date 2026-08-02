@@ -52,6 +52,11 @@
          font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
   footer { border-top:1px solid var(--line); padding:30px 0 60px; color:var(--muted); font-size:.9rem; }
   ul.next { padding-left:20px; }
+  pre.snippet { background:var(--panel); border:1px solid var(--line); border-radius:8px;
+                padding:12px 14px; overflow-x:auto; font-size:.85rem; line-height:1.5;
+                font-family:ui-monospace,SFMono-Regular,Menlo,monospace; margin:10px 0 0;
+                white-space:pre; }
+  ol.steps li pre.snippet, .note pre.snippet { margin-top:10px; }
   ul.next li { margin:8px 0; }
 </style></head><body>
 <header><div class="wrap">
@@ -74,7 +79,7 @@
 
   <nav class="toc">
     <h2>What this guide covers</h2>
-    <ol><li><a href="#c0">Sign in as the administrator</a></li><li><a href="#c1">Add two people</a></li><li><a href="#c2">Put them both in a group</a></li><li><a href="#c3">Ada works with the agent privately</a></li><li><a href="#c4">The whole group works together</a></li></ol>
+    <ol><li><a href="#c0">Sign in as the administrator</a></li><li><a href="#c1">Add two people</a></li><li><a href="#c2">Put them both in a group</a></li><li><a href="#c3">Ada works with the agent privately</a></li><li><a href="#c4">The whole group works together</a></li><li><a href="#c5">Give the agent a tool of your own</a></li></ol>
   </nav>
 </div>
 
@@ -82,7 +87,7 @@
 <section id="c0">
   <h2>1. Sign in as the administrator</h2>
   
-  <p class="intro">qm has no passwords. You sign in with a link sent to your email address, which works exactly once and expires after fifteen minutes. On a fresh install the administrator is whoever <code>[auth].admin_email</code> names in <code>config.toml</code> — start the server, then follow along.</p>
+  <p class="intro">qm has no passwords. You sign in with a link sent to your email address, which works exactly once and expires after fifteen minutes. On a fresh install the administrator is whoever <code>[auth].admin_email</code> names in <code>config.toml</code>; the <code>[email]</code> section is where you point it at your mail provider. Start the server, then follow along.</p>
   <ol class="steps">
   <li>Open <strong>http://127.0.0.1:8080</strong> in a browser. You will be redirected to the sign-in page, because every page in qm requires you to be signed in.</li>
   </ol>
@@ -92,8 +97,8 @@
   </ol>
   <div class="note">You always get the same confirmation page, whether or not that address is allowed to sign in. That is deliberate: a different response for an unknown address would let anyone test whether a person works at your company.</div>
   <ol class="steps">
-  <li>Find the link. With the default <code>email_mode = &quot;console&quot;</code> there is no mail provider, so the link is written to the server log instead — look for a line containing <code>sign-in link</code>. To send real email, set <code>email_mode = &quot;resend&quot;</code>, a verified <code>from_address</code>, and the <code>QM_EMAIL_API_KEY</code> environment variable.</li>
-  <li>Open the link. You are signed in, and the <strong>Admin</strong> tab appears in the navigation — it is only shown to the administrator.</li>
+  <li>Open the link in your inbox. It works once and expires after fifteen minutes; request another whenever you need one.</li>
+  <li>You are signed in, and the <strong>Admin</strong> tab appears in the navigation — it is only shown to the administrator.</li>
   </ol>
   <figure><a href="02.png" target="_blank"><img src="02.png" loading="lazy" alt="The Admin page. It shows which model is driving turns, the security posture, the applied database migrations, the command-policy floor, and a durable audit log of everything the agent has done."></a><figcaption>The Admin page. It shows which model is driving turns, the security posture, the applied database migrations, the command-policy floor, and a durable audit log of everything the agent has done.</figcaption></figure>
 </section>
@@ -165,6 +170,42 @@
   <figure><a href="12.png" target="_blank"><img src="12.png" loading="lazy" alt="The group's memory notebook. What the agent learned here belongs to the Ops group — it is not in Ada's private notebook, and not in Dana's."></a><figcaption>The group's memory notebook. What the agent learned here belongs to the Ops group — it is not in Ada's private notebook, and not in Dana's.</figcaption></figure>
   <div class="note">This is the whole point of scopes. Ada and Dana each have a private workspace the other cannot read, and a shared one where the agent keeps a single memory for the team. The same boundary holds however the message arrives — the web UI, Slack, Telegram, or a scheduled job — because every turn goes through one orchestrator that resolves the scope before the model sees anything.</div>
 </section>
+<section id="c5">
+  <h2>6. Give the agent a tool of your own</h2>
+  
+  <p class="intro">The tool surface is small and fixed on purpose, but a deployment almost always needs a verb that reaches into something only it has — an internal API, a registry, a database. Those run as <strong>WebAssembly modules</strong>: a module is a pure function over bytes, so it gets the model's arguments and returns text, and cannot touch the host's filesystem, network or database except through what you compile into it.</p>
+  <div class="note">A module is a small Rust crate built against <code>plugins/qm_plugin_sdk</code>. The one installed here is <code>plugins/modules/service_registry</code> — an ops service registry that answers who owns a service, where its runbook is, and who is on call:
+
+<pre class="snippet">use qm_plugin_sdk::{PluginRequest, PluginResponse};
+
+qm_plugin_sdk::handler!(process);
+
+fn process(request: PluginRequest) -&gt; PluginResponse {
+    let service = request.arg(&quot;service&quot;).unwrap_or(&quot;&quot;);
+    PluginResponse::output(look_up(service))
+}</pre></div>
+  <ol class="steps">
+  <li>Build the module for WebAssembly: <code>cd plugins/modules/service_registry &amp;&amp; cargo build --release --target wasm32-wasip1</code>, then copy the resulting <code>.wasm</code> into your plugin directory.</li>
+  <li>Declare it as a tool in <code>config.toml</code>, giving it the name and JSON Schema the model will see:
+
+<pre class="snippet">[plugins]
+dir = &quot;plugins/modules&quot;
+
+[[plugins.tools]]
+name = &quot;lookup_service&quot;
+description = &quot;Look up who owns a service, its runbook, and who is on call.&quot;
+module = &quot;service_registry.wasm&quot;
+parameters = '{&quot;type&quot;:&quot;object&quot;,&quot;properties&quot;:{&quot;service&quot;:{&quot;type&quot;:&quot;string&quot;}},&quot;required&quot;:[&quot;service&quot;]}'</pre></li>
+  <li>Build the server with the plugin runtime — <code>cargo build --release --features wasm</code> — and restart it. Without that feature the module is reported as inert rather than silently ignored.</li>
+  <li>Check <strong>Admin</strong>. The Plugins panel lists every configured module and whether it actually loaded.</li>
+  </ol>
+  <figure><a href="13.png" target="_blank"><img src="13.png" loading="lazy" alt="The Plugins panel: `service_registry.wasm` is loaded and offering `lookup_service` to every scope. A missing file would show as MISSING here, and a build without the wasm feature would show every module as inert."></a><figcaption>The Plugins panel: <code>service_registry.wasm</code> is loaded and offering <code>lookup_service</code> to every scope. A missing file would show as MISSING here, and a build without the wasm feature would show every module as inert.</figcaption></figure>
+  <ol class="steps">
+  <li>That is all — the agent now has the tool. Ask it something only the registry can answer.</li>
+  </ol>
+  <figure><a href="14.png" target="_blank"><img src="14.png" loading="lazy" alt="The agent called `lookup_service` and answered from the registry. The call and its result are ordinary transcript entries — a plugin tool is not a second class of thing."></a><figcaption>The agent called <code>lookup_service</code> and answered from the registry. The call and its result are ordinary transcript entries — a plugin tool is not a second class of thing.</figcaption></figure>
+  <div class="note">Each call gets a fresh instance, so one scope's call cannot observe or corrupt another's. A module that fails is logged and skipped rather than failing the turn, and a plugin may not shadow a built-in tool — <code>execute</code> always means <code>execute</code>. Modules can also answer two other hooks: <code>turn.before</code>, to rewrite a turn or route it to a different model, and <code>screen</code>, to run your own security classifier instead of the built-in one.</div>
+</section>
 
 <section>
   <h2>Where to go next</h2>
@@ -182,7 +223,7 @@
 </section>
 
 <footer>
-  Generated on 2026-08-02T20:51:10Z from a real run against <code>openai/gpt-5.6-sol</code>.
+  Generated on 2026-08-02T22:06:47Z from a real run against <code>openai/gpt-5.6-sol</code>.
   Every screenshot is the actual application and every agent reply is a real model turn —
   regenerate with <code>bash scripts/tutorial.sh</code>.
 </footer>

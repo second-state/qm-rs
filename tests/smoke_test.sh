@@ -58,9 +58,11 @@ root_dir = "$TMP/scopes"
 enabled = true
 tick_seconds = 1
 
+[email]
+mode = "console"
+
 [auth]
 admin_email = "ada@acme.test"
-email_mode = "console"
 public_url = "$BASE"
 bootstrap_api_key = "$BOOTSTRAP_KEY"
 

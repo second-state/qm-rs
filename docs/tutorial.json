@@ -1,10 +1,10 @@
 {
-  "stamp": "2026-08-02T20:51:10Z",
+  "stamp": "2026-08-02T22:06:47Z",
   "model": "openai/gpt-5.6-sol",
   "chapters": [
     {
       "title": "Sign in as the administrator",
-      "intro": "qm has no passwords. You sign in with a link sent to your email address, which works exactly once and expires after fifteen minutes. On a fresh install the administrator is whoever `[auth].admin_email` names in `config.toml` — start the server, then follow along.",
+      "intro": "qm has no passwords. You sign in with a link sent to your email address, which works exactly once and expires after fifteen minutes. On a fresh install the administrator is whoever `[auth].admin_email` names in `config.toml`; the `[email]` section is where you point it at your mail provider. Start the server, then follow along.",
       "steps": [
         {
           "kind": "step",
@@ -25,11 +25,11 @@
         },
         {
           "kind": "step",
-          "text": "Find the link. With the default `email_mode = \"console\"` there is no mail provider, so the link is written to the server log instead — look for a line containing `sign-in link`. To send real email, set `email_mode = \"resend\"`, a verified `from_address`, and the `QM_EMAIL_API_KEY` environment variable."
+          "text": "Open the link in your inbox. It works once and expires after fifteen minutes; request another whenever you need one."
         },
         {
           "kind": "step",
-          "text": "Open the link. You are signed in, and the **Admin** tab appears in the navigation — it is only shown to the administrator."
+          "text": "You are signed in, and the **Admin** tab appears in the navigation — it is only shown to the administrator."
         },
         {
           "kind": "shot",
@@ -197,6 +197,52 @@
         {
           "kind": "note",
           "text": "This is the whole point of scopes. Ada and Dana each have a private workspace the other cannot read, and a shared one where the agent keeps a single memory for the team. The same boundary holds however the message arrives — the web UI, Slack, Telegram, or a scheduled job — because every turn goes through one orchestrator that resolves the scope before the model sees anything."
+        }
+      ],
+      "status": "pass",
+      "error": ""
+    },
+    {
+      "title": "Give the agent a tool of your own",
+      "intro": "The tool surface is small and fixed on purpose, but a deployment almost always needs a verb that reaches into something only it has — an internal API, a registry, a database. Those run as **WebAssembly modules**: a module is a pure function over bytes, so it gets the model's arguments and returns text, and cannot touch the host's filesystem, network or database except through what you compile into it.",
+      "steps": [
+        {
+          "kind": "note",
+          "text": "A module is a small Rust crate built against `plugins/qm_plugin_sdk`. The one installed here is `plugins/modules/service_registry` — an ops service registry that answers who owns a service, where its runbook is, and who is on call:\n\n```rust\nuse qm_plugin_sdk::{PluginRequest, PluginResponse};\n\nqm_plugin_sdk::handler!(process);\n\nfn process(request: PluginRequest) -> PluginResponse {\n    let service = request.arg(\"service\").unwrap_or(\"\");\n    PluginResponse::output(look_up(service))\n}\n```"
+        },
+        {
+          "kind": "step",
+          "text": "Build the module for WebAssembly: `cd plugins/modules/service_registry && cargo build --release --target wasm32-wasip1`, then copy the resulting `.wasm` into your plugin directory."
+        },
+        {
+          "kind": "step",
+          "text": "Declare it as a tool in `config.toml`, giving it the name and JSON Schema the model will see:\n\n```toml\n[plugins]\ndir = \"plugins/modules\"\n\n[[plugins.tools]]\nname = \"lookup_service\"\ndescription = \"Look up who owns a service, its runbook, and who is on call.\"\nmodule = \"service_registry.wasm\"\nparameters = '{\"type\":\"object\",\"properties\":{\"service\":{\"type\":\"string\"}},\"required\":[\"service\"]}'\n```"
+        },
+        {
+          "kind": "step",
+          "text": "Build the server with the plugin runtime — `cargo build --release --features wasm` — and restart it. Without that feature the module is reported as inert rather than silently ignored."
+        },
+        {
+          "kind": "step",
+          "text": "Check **Admin**. The Plugins panel lists every configured module and whether it actually loaded."
+        },
+        {
+          "kind": "shot",
+          "file": "13.png",
+          "caption": "The Plugins panel: `service_registry.wasm` is loaded and offering `lookup_service` to every scope. A missing file would show as MISSING here, and a build without the wasm feature would show every module as inert."
+        },
+        {
+          "kind": "step",
+          "text": "That is all — the agent now has the tool. Ask it something only the registry can answer."
+        },
+        {
+          "kind": "shot",
+          "file": "14.png",
+          "caption": "The agent called `lookup_service` and answered from the registry. The call and its result are ordinary transcript entries — a plugin tool is not a second class of thing."
+        },
+        {
+          "kind": "note",
+          "text": "Each call gets a fresh instance, so one scope's call cannot observe or corrupt another's. A module that fails is logged and skipped rather than failing the turn, and a plugin may not shadow a built-in tool — `execute` always means `execute`. Modules can also answer two other hooks: `turn.before`, to rewrite a turn or route it to a different model, and `screen`, to run your own security classifier instead of the built-in one."
         }
       ],
       "status": "pass",

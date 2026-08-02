@@ -625,9 +625,11 @@ root_dir = "{scopes}"
 [cron]
 enabled = false
 
+[email]
+mode = "console"
+
 [auth]
 admin_email = "u1@e2e.test"
-email_mode = "console"
 public_url = "{base}"
 bootstrap_api_key = "{bootstrap_key}"
 "#,

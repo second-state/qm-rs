@@ -1,0 +1,17 @@
+[package]
+name = "service_registry"
+version = "0.1.0"
+edition = "2021"
+description = "Example qm-rs plugin: a custom agent tool backed by an internal service registry."
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+qm_plugin_sdk = { path = "../../qm_plugin_sdk" }
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true

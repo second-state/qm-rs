@@ -31,7 +31,75 @@ pub struct Config {
     #[serde(default)]
     pub auth: AuthConfig,
     #[serde(default)]
+    pub email: EmailConfig,
+    #[serde(default)]
     pub plugins: PluginsConfig,
+}
+
+/// Outbound email: the sign-in magic links.
+///
+/// Its own section rather than a corner of `[auth]`, because "where do I put
+/// the Resend key" should be answerable by skimming section headings.
+#[derive(Debug, Clone, Deserialize)]
+pub struct EmailConfig {
+    /// `console` writes the sign-in link to the server log — no provider
+    /// needed, and how a first run works. `resend` posts to the Resend API.
+    #[serde(default = "default_email_mode")]
+    pub mode: String,
+    /// Leave empty to read `api_key_env` from the environment instead.
+    #[serde(default)]
+    pub api_key: String,
+    #[serde(default = "default_email_key_env")]
+    pub api_key_env: String,
+    /// Verified sender address. Required when `mode = "resend"`.
+    #[serde(default)]
+    pub from_address: String,
+    #[serde(default = "default_from_name")]
+    pub from_name: String,
+}
+
+fn default_from_name() -> String {
+    "QM".to_string()
+}
+
+impl Default for EmailConfig {
+    fn default() -> Self {
+        Self {
+            mode: default_email_mode(),
+            api_key: String::new(),
+            api_key_env: default_email_key_env(),
+            from_address: String::new(),
+            from_name: default_from_name(),
+        }
+    }
+}
+
+impl EmailConfig {
+    /// The key from the file if set, else from the named env var.
+    ///
+    /// An empty string in the file means "not set", so an operator can leave
+    /// the field visible as documentation without it shadowing the env var.
+    pub fn resolve_api_key(&self) -> Option<String> {
+        if !self.api_key.trim().is_empty() {
+            return Some(self.api_key.trim().to_string());
+        }
+        std::env::var(&self.api_key_env)
+            .ok()
+            .filter(|k| !k.trim().is_empty())
+    }
+
+    /// Whether this configuration will actually deliver mail.
+    pub fn sends_mail(&self) -> bool {
+        self.mode.trim().eq_ignore_ascii_case("resend") && self.resolve_api_key().is_some()
+    }
+
+    pub fn from_header(&self) -> String {
+        let address = self.from_address.trim();
+        match self.from_name.trim() {
+            "" => address.to_string(),
+            name => format!("{name} <{address}>"),
+        }
+    }
 }
 
 /// Web sign-in: email magic links for people, bearer keys for programs.
@@ -67,14 +135,14 @@ pub struct AuthConfig {
     #[serde(default)]
     pub allowed_domains: Vec<String>,
 
-    /// `console` writes the link to the log; `resend` posts to the Resend API.
-    #[serde(default = "default_email_mode")]
-    pub email_mode: String,
+    /// Moved to `[email]`. Still read so an older `config.toml` keeps working,
+    /// with a warning at boot.
+    #[serde(default)]
+    pub email_mode: Option<String>,
     #[serde(default)]
     pub email_api_key: Option<String>,
-    #[serde(default = "default_email_key_env")]
-    pub email_api_key_env: String,
-    /// Verified sender address, required for `resend`.
+    #[serde(default)]
+    pub email_api_key_env: Option<String>,
     #[serde(default)]
     pub from_address: Option<String>,
 
@@ -132,9 +200,9 @@ impl Default for AuthConfig {
             admin_email: None,
             allowed_emails: Vec::new(),
             allowed_domains: Vec::new(),
-            email_mode: default_email_mode(),
+            email_mode: None,
             email_api_key: None,
-            email_api_key_env: default_email_key_env(),
+            email_api_key_env: None,
             from_address: None,
             login_token_ttl_secs: default_login_ttl(),
             session_ttl_secs: default_session_ttl(),
@@ -155,17 +223,6 @@ impl AuthConfig {
     /// server — the configuration an operator most needs warning about.
     pub fn is_unbounded_denylist(&self) -> bool {
         self.is_denylist() && self.allowed_domains.is_empty()
-    }
-
-    pub fn resolve_email_api_key(&self) -> Option<String> {
-        self.email_api_key
-            .clone()
-            .filter(|k| !k.trim().is_empty())
-            .or_else(|| {
-                std::env::var(&self.email_api_key_env)
-                    .ok()
-                    .filter(|k| !k.trim().is_empty())
-            })
     }
 
     pub fn resolve_bootstrap_key(&self) -> Option<String> {
@@ -691,8 +748,47 @@ impl Config {
                 Config::default()
             }
         };
+        cfg.migrate_legacy_email();
         cfg.apply_env_overrides();
         cfg
+    }
+
+    /// Carry the pre-`[email]` fields over, so an older `config.toml` keeps
+    /// working. `[email]` wins wherever both are set; the rest of the codebase
+    /// only ever reads `[email]`.
+    fn migrate_legacy_email(&mut self) {
+        let mut moved = Vec::new();
+        if let Some(mode) = self.auth.email_mode.take() {
+            if self.email.mode == default_email_mode() {
+                self.email.mode = mode;
+            }
+            moved.push("email_mode");
+        }
+        if let Some(key) = self.auth.email_api_key.take() {
+            if self.email.api_key.is_empty() {
+                self.email.api_key = key;
+            }
+            moved.push("email_api_key");
+        }
+        if let Some(env) = self.auth.email_api_key_env.take() {
+            if self.email.api_key_env == default_email_key_env() {
+                self.email.api_key_env = env;
+            }
+            moved.push("email_api_key_env");
+        }
+        if let Some(from) = self.auth.from_address.take() {
+            if self.email.from_address.is_empty() {
+                self.email.from_address = from;
+            }
+            moved.push("from_address");
+        }
+        if !moved.is_empty() {
+            tracing::warn!(
+                fields = moved.join(", "),
+                "these [auth] fields have moved to the [email] section — they still work, but \
+                 move them to [email] (see config.example.toml)"
+            );
+        }
     }
 
     /// Env vars override file values so secrets stay out of `config.toml`.
@@ -734,6 +830,12 @@ impl Config {
         }
         if let Ok(v) = std::env::var("QM_ADMIN_EMAIL") {
             self.auth.admin_email = Some(v);
+        }
+        if let Ok(v) = std::env::var("QM_EMAIL_API_KEY") {
+            self.email.api_key = v;
+        }
+        if let Ok(v) = std::env::var("QM_EMAIL_FROM") {
+            self.email.from_address = v;
         }
         if let Ok(v) = std::env::var("QM_PORT") {
             match v.parse() {
@@ -795,6 +897,124 @@ mod tests {
         std::env::set_var("QM_TEST_KEY_LOOKUP", "k");
         assert_eq!(cfg.resolve_api_key().as_deref(), Some("k"));
         std::env::remove_var("QM_TEST_KEY_LOOKUP");
+    }
+
+    #[test]
+    fn the_model_api_key_can_live_in_the_config_file() {
+        let cfg: Config = toml::from_str(
+            r#"
+            [harness]
+            kind = "openai"
+            endpoint = "https://gw.example.com/v1"
+            api_key = "gw-in-the-file"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            cfg.harness.resolve_api_key().as_deref(),
+            Some("gw-in-the-file"),
+            "an operator who puts the key in config.toml should not need an env var"
+        );
+    }
+
+    #[test]
+    fn email_has_its_own_section_with_the_key_in_either_place() {
+        let cfg: Config = toml::from_str(
+            r#"
+            [email]
+            mode = "resend"
+            api_key = "re_in_the_file"
+            from_address = "qm@acme.test"
+            from_name = "Acme QM"
+            "#,
+        )
+        .unwrap();
+        assert!(cfg.email.sends_mail());
+        assert_eq!(
+            cfg.email.resolve_api_key().as_deref(),
+            Some("re_in_the_file")
+        );
+        assert_eq!(cfg.email.from_header(), "Acme QM <qm@acme.test>");
+    }
+
+    #[test]
+    fn an_empty_email_key_falls_through_to_the_environment() {
+        let cfg: Config = toml::from_str(
+            r#"
+            [email]
+            mode = "resend"
+            api_key = ""
+            api_key_env = "QM_TEST_EMAIL_FALLTHROUGH"
+            from_address = "qm@acme.test"
+            "#,
+        )
+        .unwrap();
+        assert!(!cfg.email.sends_mail(), "no key anywhere means no sending");
+
+        std::env::set_var("QM_TEST_EMAIL_FALLTHROUGH", "re_from_env");
+        assert_eq!(cfg.email.resolve_api_key().as_deref(), Some("re_from_env"));
+        assert!(cfg.email.sends_mail());
+        std::env::remove_var("QM_TEST_EMAIL_FALLTHROUGH");
+    }
+
+    #[test]
+    fn a_from_address_without_a_name_is_sent_bare() {
+        let cfg = EmailConfig {
+            from_address: "qm@acme.test".into(),
+            from_name: "  ".into(),
+            ..EmailConfig::default()
+        };
+        assert_eq!(cfg.from_header(), "qm@acme.test");
+    }
+
+    #[test]
+    fn console_is_the_default_and_never_sends() {
+        let cfg: Config = toml::from_str("").unwrap();
+        assert_eq!(cfg.email.mode, "console");
+        assert!(!cfg.email.sends_mail());
+    }
+
+    #[test]
+    fn the_pre_email_section_config_still_works() {
+        // An older config.toml put these under [auth]. They are carried over so
+        // it keeps working, rather than silently falling back to console mode
+        // and writing sign-in links to the log of a production server.
+        let mut cfg: Config = toml::from_str(
+            r#"
+            [auth]
+            email_mode = "resend"
+            email_api_key = "re_legacy"
+            from_address = "old@acme.test"
+            "#,
+        )
+        .unwrap();
+        cfg.migrate_legacy_email();
+
+        assert_eq!(cfg.email.mode, "resend");
+        assert_eq!(cfg.email.resolve_api_key().as_deref(), Some("re_legacy"));
+        assert_eq!(cfg.email.from_address, "old@acme.test");
+        assert!(cfg.email.sends_mail());
+    }
+
+    #[test]
+    fn the_new_section_wins_over_the_old_fields() {
+        let mut cfg: Config = toml::from_str(
+            r#"
+            [auth]
+            email_mode = "console"
+            from_address = "old@acme.test"
+
+            [email]
+            mode = "resend"
+            api_key = "re_new"
+            from_address = "new@acme.test"
+            "#,
+        )
+        .unwrap();
+        cfg.migrate_legacy_email();
+
+        assert_eq!(cfg.email.mode, "resend");
+        assert_eq!(cfg.email.from_address, "new@acme.test");
     }
 
     #[test]

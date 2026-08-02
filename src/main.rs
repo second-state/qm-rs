@@ -112,7 +112,14 @@ async fn main() {
         }
     }
 
-    let mailer = Arc::new(Mailer::new(config.auth.clone()).expect("build the mailer"));
+    let mailer = Arc::new(
+        Mailer::new(
+            config.email.clone(),
+            config.auth.product_name.clone(),
+            config.auth.login_token_ttl_secs,
+        )
+        .expect("build the mailer"),
+    );
     tracing::info!(email = %mailer.describe(), "sign-in");
     if config.auth.admin_email.is_none()
         && config.auth.allowed_emails.is_empty()

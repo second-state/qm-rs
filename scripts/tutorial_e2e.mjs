@@ -141,7 +141,8 @@ await chapterRun(
   'Sign in as the administrator',
   'qm has no passwords. You sign in with a link sent to your email address, which works ' +
     'exactly once and expires after fifteen minutes. On a fresh install the administrator is ' +
-    'whoever `[auth].admin_email` names in `config.toml` — start the server, then follow along.',
+    'whoever `[auth].admin_email` names in `config.toml`; the `[email]` section is where you ' +
+    'point it at your mail provider. Start the server, then follow along.',
   async () => {
     step('Open **http://127.0.0.1:8080** in a browser. You will be redirected to the sign-in page, because every page in qm requires you to be signed in.');
     await admin.page.goto(`${BASE}/admin`, { waitUntil: 'load' });
@@ -155,10 +156,10 @@ await chapterRun(
         'anyone test whether a person works at your company.',
     );
 
-    step('Find the link. With the default `email_mode = "console"` there is no mail provider, so the link is written to the server log instead — look for a line containing `sign-in link`. To send real email, set `email_mode = "resend"`, a verified `from_address`, and the `QM_EMAIL_API_KEY` environment variable.');
+    step('Open the link in your inbox. It works once and expires after fifteen minutes; request another whenever you need one.');
     await signIn(admin, 'admin@acme.test');
 
-    step('Open the link. You are signed in, and the **Admin** tab appears in the navigation — it is only shown to the administrator.');
+    step('You are signed in, and the **Admin** tab appears in the navigation — it is only shown to the administrator.');
     await admin.page.goto(`${BASE}/admin`, { waitUntil: 'load' });
     await shot(admin.page, 'The Admin page. It shows which model is driving turns, the security posture, the applied database migrations, the command-policy floor, and a durable audit log of everything the agent has done.', { full: true });
   },
@@ -350,6 +351,68 @@ await chapterRun(
   },
 );
 
+await chapterRun(
+  'Give the agent a tool of your own',
+  'The tool surface is small and fixed on purpose, but a deployment almost always needs a verb ' +
+    'that reaches into something only it has — an internal API, a registry, a database. Those ' +
+    'run as **WebAssembly modules**: a module is a pure function over bytes, so it gets the ' +
+    "model's arguments and returns text, and cannot touch the host's filesystem, network or " +
+    'database except through what you compile into it.',
+  async () => {
+    note(
+      'A module is a small Rust crate built against `plugins/qm_plugin_sdk`. The one installed ' +
+        'here is `plugins/modules/service_registry` — an ops service registry that answers who ' +
+        'owns a service, where its runbook is, and who is on call:\n\n' +
+        '```rust\n' +
+        'use qm_plugin_sdk::{PluginRequest, PluginResponse};\n\n' +
+        'qm_plugin_sdk::handler!(process);\n\n' +
+        'fn process(request: PluginRequest) -> PluginResponse {\n' +
+        '    let service = request.arg("service").unwrap_or("");\n' +
+        '    PluginResponse::output(look_up(service))\n' +
+        '}\n' +
+        '```',
+    );
+
+    step('Build the module for WebAssembly: `cd plugins/modules/service_registry && cargo build --release --target wasm32-wasip1`, then copy the resulting `.wasm` into your plugin directory.');
+
+    step('Declare it as a tool in `config.toml`, giving it the name and JSON Schema the model will see:\n\n' +
+      '```toml\n' +
+      '[plugins]\n' +
+      'dir = "plugins/modules"\n\n' +
+      '[[plugins.tools]]\n' +
+      'name = "lookup_service"\n' +
+      'description = "Look up who owns a service, its runbook, and who is on call."\n' +
+      'module = "service_registry.wasm"\n' +
+      'parameters = \'{"type":"object","properties":{"service":{"type":"string"}},"required":["service"]}\'\n' +
+      '```');
+
+    step('Build the server with the plugin runtime — `cargo build --release --features wasm` — and restart it. Without that feature the module is reported as inert rather than silently ignored.');
+
+    step('Check **Admin**. The Plugins panel lists every configured module and whether it actually loaded.');
+    await admin.page.goto(`${BASE}/admin`, { waitUntil: 'load' });
+    const adminText = await admin.page.locator('main').textContent();
+    check(/service_registry/.test(adminText), 'the plugin should be listed on the admin page');
+    check(/ready/.test(adminText), 'the plugin should report as ready');
+    await shot(admin.page, 'The Plugins panel: `service_registry.wasm` is loaded and offering `lookup_service` to every scope. A missing file would show as MISSING here, and a build without the wasm feature would show every module as inert.', { full: true });
+
+    step('That is all — the agent now has the tool. Ask it something only the registry can answer.');
+    await openSession(admin, 'group:ops', 'Who owns billing');
+    await ask(admin, 'Who owns the billing service, and who is on call for it?');
+    const reply = await lastReply(admin.page);
+    check(/payments/i.test(reply), `the plugin answer should reach the reply, got ${JSON.stringify(reply)}`);
+    await shot(admin.page, 'The agent called `lookup_service` and answered from the registry. The call and its result are ordinary transcript entries — a plugin tool is not a second class of thing.', { full: true });
+
+    note(
+      'Each call gets a fresh instance, so one scope\'s call cannot observe or corrupt ' +
+        "another's. A module that fails is logged and skipped rather than failing the turn, and " +
+        'a plugin may not shadow a built-in tool — `execute` always means `execute`. Modules can ' +
+        'also answer two other hooks: `turn.before`, to rewrite a turn or route it to a ' +
+        'different model, and `screen`, to run your own security classifier instead of the ' +
+        'built-in one.',
+    );
+  },
+);
+
 await browser.close();
 
 // ---------------------------------------------------------------------------
@@ -361,13 +424,28 @@ const esc = (s) =>
   String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /// The small slice of Markdown the prose above uses, rendered for HTML:
-/// `**bold**`, `` `code` `` and `[text](url)`. Escaping happens first, so a
-/// link's text and href are already safe by the time they are wrapped.
-const inline = (s) =>
-  esc(s)
+/// fenced blocks, `**bold**`, `` `code` `` and `[text](url)`.
+///
+/// Fenced blocks are lifted out first and put back last. Otherwise the
+/// inline-code rule matches the first two backticks of a ``` fence and eats it,
+/// which is exactly what happened the first time.
+const inline = (s) => {
+  const blocks = [];
+  const withPlaceholders = String(s).replace(/```[a-z]*\n([\s\S]*?)```/g, (_, code) => {
+    blocks.push(code.replace(/\n$/, ''));
+    return `\u0000BLOCK${blocks.length - 1}\u0000`;
+  });
+
+  let out = esc(withPlaceholders)
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2">$1</a>');
+
+  blocks.forEach((code, i) => {
+    out = out.replace(`\u0000BLOCK${i}\u0000`, `<pre class="snippet">${esc(code)}</pre>`);
+  });
+  return out;
+};
 
 const BACKGROUND = {
   what: [
@@ -538,6 +616,11 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
          font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
   footer { border-top:1px solid var(--line); padding:30px 0 60px; color:var(--muted); font-size:.9rem; }
   ul.next { padding-left:20px; }
+  pre.snippet { background:var(--panel); border:1px solid var(--line); border-radius:8px;
+                padding:12px 14px; overflow-x:auto; font-size:.85rem; line-height:1.5;
+                font-family:ui-monospace,SFMono-Regular,Menlo,monospace; margin:10px 0 0;
+                white-space:pre; }
+  ol.steps li pre.snippet, .note pre.snippet { margin-top:10px; }
   ul.next li { margin:8px 0; }
 </style></head><body>
 <header><div class="wrap">

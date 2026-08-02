@@ -72,10 +72,40 @@ PROBE="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$QM_E2E_ENDPOINT/chat/c
 [ "$PROBE" = "200" ] || { echo "FAIL: the gateway returned $PROBE for $QM_E2E_MODEL" >&2; exit 1; }
 echo "ok: gateway reachable"
 
-# ---- boot the server ------------------------------------------------------
+# ---- build, including the plugin runtime ----------------------------------
 
-cargo build --quiet
-mkdir -p "$STAGE" "$TMP/scopes"
+# The tutorial installs a WasmEdge plugin, so the server needs the `wasm`
+# feature. Without it the module would load as "inert" and that chapter would
+# document the wrong thing.
+echo "Building with the wasm feature (first run fetches WasmEdge)…"
+cargo build --quiet --features wasm
+
+# The example module is compiled here rather than committed as a binary, so the
+# guide always shows a module built from the source next to it.
+if ! rustup target list --installed 2>/dev/null | grep -q wasm32-wasip1; then
+  echo "Adding the wasm32-wasip1 target…"
+  rustup target add wasm32-wasip1
+fi
+# `wasmedge-sdk/standalone` downloads the runtime at build time but does not
+# bake an rpath into the binary, so the dynamic loader has to be told where it
+# landed. Check the build directory first, then the usual home install.
+WASMEDGE_LIB="$(find "$ROOT/target" -type d -path '*standalone*/lib' 2>/dev/null | head -1)"
+[ -n "$WASMEDGE_LIB" ] || WASMEDGE_LIB="$HOME/.wasmedge/lib"
+if [ ! -f "$WASMEDGE_LIB/libwasmedge.0.dylib" ] && [ ! -f "$WASMEDGE_LIB/libwasmedge.so.0" ]; then
+  echo "FAIL: built with --features wasm but libwasmedge was not found." >&2
+  echo "      Install it with: curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install_v2.sh | bash" >&2
+  exit 1
+fi
+export DYLD_FALLBACK_LIBRARY_PATH="$WASMEDGE_LIB:${DYLD_FALLBACK_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="$WASMEDGE_LIB:${LD_LIBRARY_PATH:-}"
+echo "ok: wasmedge runtime at $WASMEDGE_LIB"
+
+PLUGIN_SRC="$ROOT/plugins/modules/service_registry"
+( cd "$PLUGIN_SRC" && cargo build --quiet --release --target wasm32-wasip1 )
+
+mkdir -p "$STAGE" "$TMP/scopes" "$TMP/plugins"
+cp "$PLUGIN_SRC/target/wasm32-wasip1/release/service_registry.wasm" "$TMP/plugins/"
+echo "ok: plugin module built ($(du -h "$TMP/plugins/service_registry.wasm" | cut -f1))"
 
 # The key reaches the server through the environment, never the config file, so
 # it cannot be captured in a screenshot of the admin page.
@@ -107,11 +137,22 @@ root_dir = "$TMP/scopes"
 [cron]
 enabled = false
 
+[email]
+mode = "console"
+
 [auth]
 membership_mode = "allowlist"
 admin_email = "admin@acme.test"
-email_mode = "console"
 public_url = "$BASE"
+
+[plugins]
+dir = "$TMP/plugins"
+
+[[plugins.tools]]
+name = "lookup_service"
+description = "Look up who owns a service, its runbook, and who is on call."
+module = "service_registry.wasm"
+parameters = '{"type":"object","properties":{"service":{"type":"string","description":"The service name, e.g. billing"}},"required":["service"]}'
 EOF
 
 QM_CONFIG="$TMP/config.toml" QM_HARNESS_API_KEY="$QM_E2E_API_KEY" \
