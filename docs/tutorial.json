@@ -1,10 +1,10 @@
 {
-  "stamp": "2026-08-02T20:30:30Z",
+  "stamp": "2026-08-02T20:51:10Z",
   "model": "openai/gpt-5.6-sol",
   "chapters": [
     {
       "title": "Sign in as the administrator",
-      "intro": "qm has no passwords. You sign in with a link sent to your email address, which works exactly once and expires after fifteen minutes. On a fresh install the administrator is whoever `[auth].admin_email` names in `config.toml` \u2014 start the server, then follow along.",
+      "intro": "qm has no passwords. You sign in with a link sent to your email address, which works exactly once and expires after fifteen minutes. On a fresh install the administrator is whoever `[auth].admin_email` names in `config.toml` — start the server, then follow along.",
       "steps": [
         {
           "kind": "step",
@@ -25,11 +25,11 @@
         },
         {
           "kind": "step",
-          "text": "Find the link. With the default `email_mode = \"console\"` there is no mail provider, so the link is written to the server log instead \u2014 look for a line containing `sign-in link`. To send real email, set `email_mode = \"resend\"`, a verified `from_address`, and the `QM_EMAIL_API_KEY` environment variable."
+          "text": "Find the link. With the default `email_mode = \"console\"` there is no mail provider, so the link is written to the server log instead — look for a line containing `sign-in link`. To send real email, set `email_mode = \"resend\"`, a verified `from_address`, and the `QM_EMAIL_API_KEY` environment variable."
         },
         {
           "kind": "step",
-          "text": "Open the link. You are signed in, and the **Admin** tab appears in the navigation \u2014 it is only shown to the administrator."
+          "text": "Open the link. You are signed in, and the **Admin** tab appears in the navigation — it is only shown to the administrator."
         },
         {
           "kind": "shot",
@@ -42,11 +42,11 @@
     },
     {
       "title": "Add two people",
-      "intro": "A person in qm is a directory entry: an id, a display name, and an email address. There is no invitation to accept and no password to choose \u2014 adding someone means they may now sign in with a link to that address, whenever they like. Each person gets a personal scope that nobody else can read: their own memory, files, credentials and working directory.",
+      "intro": "A person in qm is a directory entry: an id, a display name, and an email address. There is no invitation to accept and no password to choose — adding someone means they may now sign in with a link to that address, whenever they like. Each person gets a personal scope that nobody else can read: their own memory, files, credentials and working directory.",
       "steps": [
         {
           "kind": "step",
-          "text": "From the Admin page, click **People & accounts \u2192**."
+          "text": "From the Admin page, click **People & accounts →**."
         },
         {
           "kind": "shot",
@@ -55,7 +55,7 @@
         },
         {
           "kind": "note",
-          "text": "Two membership modes are available, chosen with `[auth].membership_mode` in `config.toml`. **allowlist** (the default) admits only people listed here or matched by a rule in the config \u2014 nobody else can sign in. **denylist** admits anyone with a valid address unless you deactivate them, which suits a deployment where something else already bounds who can reach the server, such as a VPN or an SSO proxy. Bound it with `allowed_domains` so only your company's addresses are accepted."
+          "text": "Two membership modes are available, chosen with `[auth].membership_mode` in `config.toml`. **allowlist** (the default) admits only people listed here or matched by a rule in the config — nobody else can sign in. **denylist** admits anyone with a valid address unless you deactivate them, which suits a deployment where something else already bounds who can reach the server, such as a VPN or an SSO proxy. Bound it with `allowed_domains` so only your company's addresses are accepted."
         },
         {
           "kind": "step",
@@ -68,11 +68,11 @@
         },
         {
           "kind": "note",
-          "text": "To offboard someone, click **Deactivate**. That refuses their next sign-in and immediately invalidates every browser session and API key they hold \u2014 you do not have to hunt them down. **Restore** puts them back. Deactivating is the offboarding verb in both membership modes."
+          "text": "To offboard someone, click **Deactivate**. That refuses their next sign-in and immediately invalidates every browser session and API key they hold — you do not have to hunt them down. **Restore** puts them back. Deactivating is the offboarding verb in both membership modes."
         },
         {
           "kind": "note",
-          "text": "If you run the Telegram or Slack connector, the **Link a chat account** form at the bottom of this page binds a person's chat account to their directory entry, so their messages run as them with their scopes rather than as an anonymous guest. You need their platform user id \u2014 a Telegram numeric id, or a Slack `U\u2026` id."
+          "text": "If you run the Telegram or Slack connector, the **Link a chat account** form at the bottom of this page binds a person's chat account to their directory entry, so their messages run as them with their scopes rather than as an anonymous guest. You need their platform user id — a Telegram numeric id, or a Slack `U…` id."
         }
       ],
       "status": "pass",
@@ -80,11 +80,11 @@
     },
     {
       "title": "Put them both in a group",
-      "intro": "A group is a set of people who share one scope: one memory, one working directory, one set of files. What the agent learns while working in the group belongs to the group, not to whoever happened to type the message. This is the difference between qm and a personal assistant \u2014 the same agent works for individuals and for teams, and keeps the boundary.",
+      "intro": "A group is a set of people who share one scope: one memory, one working directory, one set of files. What the agent learns while working in the group belongs to the group, not to whoever happened to type the message. This is the difference between qm and a personal assistant — the same agent works for individuals and for teams, and keeps the boundary.",
       "steps": [
         {
           "kind": "step",
-          "text": "From the Admin page, click **Groups & conversations \u2192**."
+          "text": "From the Admin page, click **Groups & conversations →**."
         },
         {
           "kind": "step",
@@ -106,7 +106,7 @@
         },
         {
           "kind": "note",
-          "text": "If you run a chat connector, use **Link a conversation to a group** at the bottom of this page to point a real Telegram group or Slack channel at `group:ops`. The chat and the web UI then share one memory and one workspace \u2014 a decision made in Slack is visible on the web, and vice versa. Without a binding, a connector derives its own separate scope from the chat id."
+          "text": "If you run a chat connector, use **Link a conversation to a group** at the bottom of this page to point a real Telegram group or Slack channel at `group:ops`. The chat and the web UI then share one memory and one workspace — a decision made in Slack is visible on the web, and vice versa. Without a binding, a connector derives its own separate scope from the chat id."
         }
       ],
       "status": "pass",
@@ -114,7 +114,7 @@
     },
     {
       "title": "Ada works with the agent privately",
-      "intro": "Now someone actually uses it. Ada signs in with her own link and asks the agent to build something in her personal scope. Behind that scope is a durable working directory \u2014 a computer that persists between conversations, where anything the agent installs stays installed.",
+      "intro": "Now someone actually uses it. Ada signs in with her own link and asks the agent to build something in her personal scope. Behind that scope is a durable working directory — a computer that persists between conversations, where anything the agent installs stays installed.",
       "steps": [
         {
           "kind": "step",
@@ -127,7 +127,7 @@
         },
         {
           "kind": "step",
-          "text": "Click **Sessions**, choose the scope to work in \u2014 here `personal:ada` \u2014 give the session a title, and click **Start**."
+          "text": "Click **Sessions**, choose the scope to work in — here `personal:ada` — give the session a title, and click **Start**."
         },
         {
           "kind": "step",
@@ -136,7 +136,7 @@
         {
           "kind": "shot",
           "file": "08.png",
-          "caption": "The agent wrote the script and ran it. The tool calls and their real output appear on the transcript as their own entries \u2014 you can see exactly what it did, not just what it says it did."
+          "caption": "The agent wrote the script and ran it. The tool calls and their real output appear on the transcript as their own entries — you can see exactly what it did, not just what it says it did."
         },
         {
           "kind": "note",
@@ -152,7 +152,7 @@
     },
     {
       "title": "The whole group works together",
-      "intro": "Finally, the multiplayer part. Ada brings her work into the group, and Dana \u2014 a different person, in a different browser, with her own session \u2014 picks it up and asks for a change. Both are talking to the same agent in the same scope, and the group remembers.",
+      "intro": "Finally, the multiplayer part. Ada brings her work into the group, and Dana — a different person, in a different browser, with her own session — picks it up and asks for a change. Both are talking to the same agent in the same scope, and the group remembers.",
       "steps": [
         {
           "kind": "step",
@@ -169,7 +169,7 @@
         },
         {
           "kind": "step",
-          "text": "Dana signs in with her own address, opens **Sessions**, and finds the same session waiting for her \u2014 she was never sent a link to it. She can see it because she is in the group."
+          "text": "Dana signs in with her own address, opens **Sessions**, and finds the same session waiting for her — she was never sent a link to it. She can see it because she is in the group."
         },
         {
           "kind": "shot",
@@ -183,7 +183,7 @@
         {
           "kind": "shot",
           "file": "11.png",
-          "caption": "The agent made the change \u2014 in the group workspace, to the file Ada put there. One conversation, two people, one agent that has the full context of both."
+          "caption": "The agent made the change — in the group workspace, to the file Ada put there. One conversation, two people, one agent that has the full context of both."
         },
         {
           "kind": "step",
@@ -192,11 +192,11 @@
         {
           "kind": "shot",
           "file": "12.png",
-          "caption": "The group's memory notebook. What the agent learned here belongs to the Ops group \u2014 it is not in Ada's private notebook, and not in Dana's."
+          "caption": "The group's memory notebook. What the agent learned here belongs to the Ops group — it is not in Ada's private notebook, and not in Dana's."
         },
         {
           "kind": "note",
-          "text": "This is the whole point of scopes. Ada and Dana each have a private workspace the other cannot read, and a shared one where the agent keeps a single memory for the team. The same boundary holds however the message arrives \u2014 the web UI, Slack, Telegram, or a scheduled job \u2014 because every turn goes through one orchestrator that resolves the scope before the model sees anything."
+          "text": "This is the whole point of scopes. Ada and Dana each have a private workspace the other cannot read, and a shared one where the agent keeps a single memory for the team. The same boundary holds however the message arrives — the web UI, Slack, Telegram, or a scheduled job — because every turn goes through one orchestrator that resolves the scope before the model sees anything."
         }
       ],
       "status": "pass",

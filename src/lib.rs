@@ -1,8 +1,16 @@
 //! qm-rs — a multiplayer agent harness for work.
 //!
-//! A Rust port of [QM](https://github.com/yc-software/qm)'s headless core onto
-//! local SQLite: axum + Tera server-rendered UI, rusqlite behind an r2d2 pool,
-//! and compile-time embedded versioned migrations.
+//! An independent Rust implementation on local SQLite — axum + Tera
+//! server-rendered UI, rusqlite behind an r2d2 pool, and compile-time embedded
+//! versioned migrations.
+//!
+//! It **learns heavily from** [QM](https://github.com/yc-software/qm), a
+//! multiplayer agent harness in TypeScript: the scope model, the
+//! single-orchestrator shape, and several specific mechanisms (command
+//! normalization, fail-closed screening, the memory notebook grammar,
+//! participant-keyed groups, exactly-once cron claims) are QM's ideas. It is
+//! not a port — no code was carried across, and behaviour differs on purpose in
+//! places. `README.md` → "Relationship to QM" is the full accounting.
 //!
 //! # Shape
 //!

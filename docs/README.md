@@ -7,11 +7,11 @@ privately and together.*
 
 ## What qm is
 
-qm is a **multiplayer agent harness for work**. Most AI agents are built as personal assistants: one person, one context, one history. That model breaks down the moment a team tries to share one — either everybody sees everybody's notes, or each person gets an assistant that knows nothing about the company.
+qm-rs is a **multiplayer agent harness for work**. Most AI agents are built as personal assistants: one person, one context, one history. That model breaks down the moment a team tries to share one — either everybody sees everybody's notes, or each person gets an assistant that knows nothing about the company.
 
-qm takes a different position. Every person and every room gets its own **scope**: its own memory, files, credentials, permissions, scheduled jobs, and a durable working directory the agent can actually run commands in. People work independently without stepping on each other, and the same agent also works with everyone together in shared groups and channels.
+qm-rs takes a different position. Every person and every room gets its own **scope**: its own memory, files, credentials, permissions, scheduled jobs, and a durable working directory the agent can actually run commands in. People work independently without stepping on each other, and the same agent also works with everyone together in shared groups and channels.
 
-This is `qm-rs`, a Rust port of that core onto local SQLite. It is one binary and one database file, with a server-rendered web UI, connectors for Slack and Telegram, and an HTTP API — no build step and nothing to orchestrate.
+`qm-rs` is an independent Rust implementation of that idea on local SQLite. It is one binary and one database file, with a server-rendered web UI, connectors for Slack and Telegram, and an HTTP API — no build step and nothing to orchestrate. It **learns heavily from** [QM](https://github.com/yc-software/qm), the TypeScript project that established this design, borrowing its concepts and several of its specific mechanisms without being a port of it.
 
 ## Why it is built this way
 
@@ -182,6 +182,6 @@ Finally, the multiplayer part. Ada brings her work into the group, and Dana — 
 
 ---
 
-*Generated on 2026-08-02T20:30:30Z from a real run against `openai/gpt-5.6-sol`. Every screenshot is the actual
+*Generated on 2026-08-02T20:51:10Z from a real run against `openai/gpt-5.6-sol`. Every screenshot is the actual
 application and every agent reply is a real model turn — regenerate with
 `bash scripts/tutorial.sh`.*
