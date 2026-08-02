@@ -62,7 +62,22 @@ pub async fn request_link(
     let next = safe_next(form.next.as_deref());
     let landing = format!("/auth/login?sent=1&next={}", urlencode(&next));
 
-    if !email_allowed(&state.config.auth, &email) {
+    // A principal the admin already created with this address. Under
+    // `allowlist` that is what makes "invite" work without a config edit and a
+    // restart. Under `denylist` it is the offboarding check: a deactivated
+    // principal is refused however permissive the config is.
+    let known = state.stores.directory.principal_by_email(&email)?;
+    if known.as_ref().is_some_and(|p| !p.active) {
+        tracing::info!(email, "sign-in refused for a deactivated principal");
+        state
+            .stores
+            .audit
+            .record(&email, "auth.request.deactivated", None, None, None, false);
+        return Ok(Redirect::to(&landing).into_response());
+    }
+    let invited = known.is_some_and(|p| p.active && p.email.is_some());
+
+    if !invited && !email_allowed(&state.config.auth, &email) {
         tracing::info!(
             email,
             "sign-in requested for an address that is not allowed"

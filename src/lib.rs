@@ -27,6 +27,7 @@ pub mod db;
 pub mod error;
 pub mod harness;
 pub mod memory;
+pub mod onboarding;
 pub mod orchestrator;
 pub mod plugin;
 pub mod policy;

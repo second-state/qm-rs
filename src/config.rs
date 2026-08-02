@@ -45,8 +45,20 @@ pub struct AuthConfig {
     #[serde(default = "default_product_name")]
     pub product_name: String,
 
-    /// The one address that may always sign in. With no allowlist configured,
-    /// this is the *only* address that may.
+    /// How membership is decided.
+    ///
+    /// * `allowlist` (default) — only a listed or invited address may sign in.
+    /// * `denylist` — any well-formed address may sign in unless its principal
+    ///   has been deactivated. This is upstream QM's model, where being in the
+    ///   Slack workspace *is* the membership and the admin offboards rather
+    ///   than invites. Only appropriate when something else bounds who can
+    ///   reach the server — an SSO proxy, a private network, or
+    ///   `allowed_domains`.
+    #[serde(default = "default_membership_mode")]
+    pub membership_mode: String,
+
+    /// The one address that may always sign in. Under `allowlist` with nothing
+    /// else configured, this is the *only* address that may.
     #[serde(default)]
     pub admin_email: Option<String>,
     #[serde(default)]
@@ -89,6 +101,9 @@ fn default_public_url() -> String {
 fn default_product_name() -> String {
     "QM".to_string()
 }
+fn default_membership_mode() -> String {
+    "allowlist".to_string()
+}
 fn default_email_mode() -> String {
     "console".to_string()
 }
@@ -113,6 +128,7 @@ impl Default for AuthConfig {
         Self {
             public_url: default_public_url(),
             product_name: default_product_name(),
+            membership_mode: default_membership_mode(),
             admin_email: None,
             allowed_emails: Vec::new(),
             allowed_domains: Vec::new(),
@@ -130,6 +146,17 @@ impl Default for AuthConfig {
 }
 
 impl AuthConfig {
+    /// Whether membership is decided by deactivation rather than by a list.
+    pub fn is_denylist(&self) -> bool {
+        self.membership_mode.trim().eq_ignore_ascii_case("denylist")
+    }
+
+    /// True when `denylist` is set with nothing bounding who may reach the
+    /// server — the configuration an operator most needs warning about.
+    pub fn is_unbounded_denylist(&self) -> bool {
+        self.is_denylist() && self.allowed_domains.is_empty()
+    }
+
     pub fn resolve_email_api_key(&self) -> Option<String> {
         self.email_api_key
             .clone()

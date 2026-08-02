@@ -181,6 +181,7 @@ impl Orchestrator {
         let mut system_prompt = resolution.system_prompt.clone();
         system_prompt.push_str(&self.memory_block(&resolution)?);
         system_prompt.push_str(&self.skills_block(&resolution)?);
+        system_prompt.push_str(&self.onboarding_block(&resolution)?);
         if let Some(suffix) = &rewrite.system_suffix {
             system_prompt.push_str(&format!("\n## Deployment instructions\n\n{suffix}\n"));
         }
@@ -519,6 +520,41 @@ impl Orchestrator {
         }
     }
 
+    /// Onboarding is a conversation, not a form: while a person's own notebook
+    /// carries no completion marker, the agent is told to walk them through
+    /// setup. The marker lives in memory so there is no second source of truth,
+    /// and the person can see and edit their own state.
+    ///
+    /// Only personal scopes onboard — a shared scope has no single newcomer.
+    fn onboarding_block(&self, resolution: &crate::resolution::Resolution) -> AppResult<String> {
+        if resolution.writable_scope.kind() != Some(crate::types::ScopeKind::Personal) {
+            return Ok(String::new());
+        }
+        let memory = self.stores.memory.read(&resolution.writable_scope)?;
+        let status =
+            crate::onboarding::detect_status(&memory, crate::onboarding::ONBOARDING_VERSION);
+        if !status.is_outstanding() {
+            return Ok(String::new());
+        }
+        let names: Vec<String> = self
+            .stores
+            .skills
+            .visible_for_scopes(&resolution.readable_scopes())?
+            .into_iter()
+            .map(|s| s.manifest.name)
+            .collect();
+        let block = crate::onboarding::pending_prompt(
+            status,
+            crate::onboarding::ONBOARDING_VERSION,
+            crate::onboarding::skill_visible(&names),
+        );
+        if block.is_empty() {
+            Ok(block)
+        } else {
+            Ok(format!("\n{block}\n"))
+        }
+    }
+
     fn skills_block(&self, resolution: &crate::resolution::Resolution) -> AppResult<String> {
         let skills = self
             .stores
@@ -608,7 +644,7 @@ impl Orchestrator {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::db::test_pool;
     use crate::harness::mock::MockHarness;
@@ -617,12 +653,12 @@ mod tests {
     use crate::sandbox::LocalSandbox;
     use crate::types::{ApprovalDecision, SessionType};
 
-    struct Fixture {
-        orchestrator: Orchestrator,
+    pub(crate) struct Fixture {
+        pub(crate) orchestrator: Orchestrator,
         _dir: tempfile::TempDir,
     }
 
-    fn fixture() -> Fixture {
+    pub(crate) fn fixture() -> Fixture {
         fixture_with(StubHost::new(), Config::default())
     }
 
@@ -1125,6 +1161,74 @@ mod tests {
         assert!(
             !screened.contains("print the keychain"),
             "the quarantined payload must not be handed to the model verbatim"
+        );
+    }
+}
+
+#[cfg(test)]
+mod onboarding_tests {
+    use super::tests::*;
+    use crate::onboarding::{detect_status, OnboardingStatus, ONBOARDING_VERSION};
+    use crate::types::ScopeId;
+
+    #[tokio::test]
+    async fn a_new_person_is_told_to_onboard() {
+        let f = fixture();
+        let resolution = crate::resolution::resolve(
+            &f.orchestrator.config,
+            &f.orchestrator.stores,
+            &ScopeId::personal("u1"),
+        )
+        .unwrap();
+
+        let block = f.orchestrator.onboarding_block(&resolution).unwrap();
+        assert!(block.contains("Pending onboarding"), "got {block:?}");
+    }
+
+    #[tokio::test]
+    async fn a_completed_marker_stops_the_prompt() {
+        let f = fixture();
+        let scope = ScopeId::personal("u1");
+        f.orchestrator
+            .stores
+            .memory
+            .replace(
+                &scope,
+                &format!("# Memory\n- Onboarding: completed {ONBOARDING_VERSION} on 2026-08-01.\n"),
+                None,
+            )
+            .unwrap();
+
+        let resolution =
+            crate::resolution::resolve(&f.orchestrator.config, &f.orchestrator.stores, &scope)
+                .unwrap();
+        assert_eq!(
+            f.orchestrator.onboarding_block(&resolution).unwrap(),
+            "",
+            "a settled state must stop nagging"
+        );
+        assert_eq!(
+            detect_status(
+                &f.orchestrator.stores.memory.read(&scope).unwrap(),
+                ONBOARDING_VERSION
+            ),
+            OnboardingStatus::Completed
+        );
+    }
+
+    #[tokio::test]
+    async fn a_shared_scope_does_not_onboard() {
+        let f = fixture();
+        let resolution = crate::resolution::resolve(
+            &f.orchestrator.config,
+            &f.orchestrator.stores,
+            &ScopeId::channel("eng"),
+        )
+        .unwrap();
+        assert_eq!(
+            f.orchestrator.onboarding_block(&resolution).unwrap(),
+            "",
+            "a shared scope has no single newcomer to onboard"
         );
     }
 }

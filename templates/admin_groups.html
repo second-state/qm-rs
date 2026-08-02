@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1>Groups</h1>
+<p class="sub">
+  A group is a set of people who share one scope — one memory, one set of files, one
+  transcript. A group is keyed by its participants, so the same people always resolve
+  to the same group.
+</p>
+
+<div class="panel">
+  <h3>Create a group</h3>
+  <form method="post" action="/admin/groups/save">
+    <div class="row">
+      <div>
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" required placeholder="Ops">
+      </div>
+      <div>
+        <label for="id">Id (optional)</label>
+        <input type="text" id="id" name="id" placeholder="derived from the name">
+      </div>
+    </div>
+    <label>Members</label>
+    <div class="checks">
+      {% for p in people %}
+        <label class="check">
+          <input type="checkbox" name="members" value="{{ p.id }}">
+          <span><code>{{ p.id }}</code>{% if p.name %} · {{ p.name }}{% endif %}</span>
+        </label>
+      {% endfor %}
+    </div>
+    <div class="actions" style="margin-top:12px">
+      <span class="hint">At least two people. Saving the same set again updates that group rather than making a second one.</span>
+      <button class="btn primary" type="submit">Save group</button>
+    </div>
+  </form>
+</div>
+
+{% for g in groups %}
+  <div class="panel">
+    <div class="row">
+      <div>
+        <h3>{{ g.name }} <code>{{ g.scope }}</code></h3>
+        <p class="hint">
+          {% for m in g.members %}<span class="badge">{{ m }}</span> {% endfor %}
+          · created {{ g.created_at | relative_time }}
+        </p>
+      </div>
+      <div class="fixed">
+        <form method="post" action="/admin/groups/delete" class="inline">
+          <input type="hidden" name="id" value="{{ g.id }}">
+          <button class="btn small danger" type="submit">Delete</button>
+        </form>
+      </div>
+    </div>
+
+    {% if g.links %}
+      <div class="table-wrap" style="margin-top:10px">
+        <table>
+          <tr><th>Linked conversation</th><th></th></tr>
+          {% for l in g.links %}
+            <tr>
+              <td><span class="badge">{{ l.surface }}</span> <code>{{ l.external_id }}</code>
+                  {% if l.label %} · {{ l.label }}{% endif %}</td>
+              <td>
+                <form method="post" action="/admin/groups/unlink" class="inline">
+                  <input type="hidden" name="surface" value="{{ l.surface }}">
+                  <input type="hidden" name="external_id" value="{{ l.external_id }}">
+                  <button class="btn small" type="submit">Unlink</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </table>
+      </div>
+    {% endif %}
+  </div>
+{% else %}
+  <div class="panel"><p class="empty">No groups yet.</p></div>
+{% endfor %}
+
+{% if telegram_enabled or slack_enabled %}
+  <h2>Link a conversation to a group</h2>
+  <div class="panel">
+    <p class="hint">
+      Point a Telegram group or a Slack channel at a group you already made, so the chat
+      and the web UI share one scope. Without a binding, a connector derives its own scope
+      from the chat id instead.
+    </p>
+    <form method="post" action="/admin/groups/link">
+      <div class="row">
+        <div>
+          <label for="chan-scope">Group</label>
+          <select id="chan-scope" name="scope">
+            {% for g in groups %}<option value="{{ g.scope }}">{{ g.name }} ({{ g.scope }})</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="chan-surface">Surface</label>
+          <select id="chan-surface" name="surface">
+            {% if telegram_enabled %}<option value="telegram">Telegram</option>{% endif %}
+            {% if slack_enabled %}<option value="slack">Slack</option>{% endif %}
+          </select>
+        </div>
+        <div>
+          <label for="chan-external">Chat id</label>
+          <input type="text" id="chan-external" name="external_id" required
+                 placeholder="Telegram -1001234567890 · Slack C01234567">
+        </div>
+        <div>
+          <label for="chan-label">Label (optional)</label>
+          <input type="text" id="chan-label" name="label" placeholder="#ops">
+        </div>
+        <div class="fixed"><button class="btn primary" type="submit">Link</button></div>
+      </div>
+    </form>
+  </div>
+{% endif %}
+
+{% endblock content %}

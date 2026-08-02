@@ -54,6 +54,11 @@ pub fn normalize(line: &str) -> String {
 }
 
 /// Strip a leading `(YYYY-MM-DD)` capture stamp, if present.
+pub fn strip_capture_date(text: &str) -> &str {
+    strip_leading_date(text)
+}
+
+/// Strip a leading `(YYYY-MM-DD)` capture stamp, if present.
 fn strip_leading_date(text: &str) -> &str {
     let bytes = text.as_bytes();
     if bytes.len() >= 12 && bytes[0] == b'(' && bytes[11] == b')' && is_iso_date(&text[1..11]) {

@@ -24,6 +24,33 @@ pub struct Channel {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct Group {
+    pub id: String,
+    pub name: String,
+    pub participant_key: String,
+    pub created_by: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConnectorIdentity {
+    pub surface: String,
+    pub external_id: String,
+    pub principal_id: String,
+    pub label: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConnectorChannel {
+    pub surface: String,
+    pub external_id: String,
+    pub scope_id: String,
+    pub label: Option<String>,
+    pub created_at: String,
+}
+
 /// Per-scope overrides. Every field is optional: an absent value inherits the
 /// org floor.
 #[derive(Debug, Clone, Default)]
@@ -194,8 +221,12 @@ impl DirectoryStore {
     pub fn entitled(&self, principal_id: &str, scope: &ScopeId) -> AppResult<bool> {
         match scope.kind() {
             Some(ScopeKind::Personal) => Ok(scope.reference() == principal_id),
-            Some(ScopeKind::Channel) | Some(ScopeKind::Group) => Ok(self
+            Some(ScopeKind::Channel) => Ok(self
                 .channel_members(scope.reference())?
+                .iter()
+                .any(|m| m == principal_id)),
+            Some(ScopeKind::Group) => Ok(self
+                .group_members(scope.reference())?
                 .iter()
                 .any(|m| m == principal_id)),
             Some(ScopeKind::Org) | Some(ScopeKind::Team) => Ok(self
@@ -203,6 +234,327 @@ impl DirectoryStore {
                 .is_some_and(|p| p.kind == PrincipalKind::Internal && p.active)),
             None => Ok(false),
         }
+    }
+
+    pub fn remove_channel_member(&self, channel_id: &str, principal_id: &str) -> AppResult<bool> {
+        let conn = self.pool.get()?;
+        Ok(conn.execute(
+            "DELETE FROM directory_channel_members WHERE channel_id = ?1 AND principal_id = ?2",
+            params![channel_id, principal_id],
+        )? > 0)
+    }
+
+    pub fn delete_channel(&self, channel_id: &str) -> AppResult<bool> {
+        let conn = self.pool.get()?;
+        Ok(conn.execute("DELETE FROM directory_channels WHERE id = ?1", [channel_id])? > 0)
+    }
+
+    /// Channel ids are used as scope refs and as connector bindings, so they are
+    /// restricted to a slug alphabet rather than accepting free text.
+    pub fn normalize_channel_id(raw: &str) -> AppResult<String> {
+        let slug: String = raw
+            .trim()
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c.to_ascii_lowercase()
+                } else {
+                    '-'
+                }
+            })
+            .collect();
+        let slug = slug.trim_matches('-').to_string();
+        if slug.is_empty() || slug.len() > 64 {
+            return Err(AppError::bad_request(format!(
+                "invalid group name {raw:?}: use letters, digits, '-' and '_' (max 64 chars)"
+            )));
+        }
+        Ok(slug)
+    }
+
+    // -- groups -------------------------------------------------------------
+
+    /// Upstream's `groupParticipantsKey`: sorted, deduped, comma-joined.
+    ///
+    /// This is what makes a multi-person conversation resolve to the same group
+    /// every time — the same three people in any order, on any surface, key to
+    /// the same string.
+    pub fn participant_key(participants: &[String]) -> String {
+        let mut unique: Vec<&str> = participants
+            .iter()
+            .map(|p| p.trim())
+            .filter(|p| !p.is_empty())
+            .collect();
+        unique.sort_unstable();
+        unique.dedup();
+        unique.join(",")
+    }
+
+    /// Create or update a group over a set of participants.
+    ///
+    /// Keyed by the participant set, so calling this twice with the same people
+    /// updates the same group rather than making a second one.
+    pub fn upsert_group(
+        &self,
+        id: &str,
+        name: &str,
+        participants: &[String],
+        created_by: &str,
+    ) -> AppResult<String> {
+        let id = Self::normalize_channel_id(id)?;
+        if participants.len() < 2 {
+            return Err(AppError::bad_request("a group needs at least two people"));
+        }
+        for principal in participants {
+            self.require_principal(principal)?;
+        }
+        let key = Self::participant_key(participants);
+
+        let mut conn = self.pool.get()?;
+        let tx = conn.transaction()?;
+
+        // An existing group over exactly these people wins, so the same set
+        // does not accumulate duplicates under different names.
+        let existing: Option<String> = {
+            let mut stmt =
+                tx.prepare("SELECT id FROM directory_groups WHERE participant_key = ?1")?;
+            let mut rows = stmt.query_map([&key], |r| r.get::<_, String>(0))?;
+            rows.next().transpose()?
+        };
+        let group_id = existing.unwrap_or(id);
+
+        tx.execute(
+            "INSERT INTO directory_groups (id, name, participant_key, created_by, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(id) DO UPDATE SET name = excluded.name,
+                                           participant_key = excluded.participant_key",
+            params![group_id, name, key, created_by, now_rfc3339()],
+        )?;
+        tx.execute(
+            "DELETE FROM directory_group_members WHERE group_id = ?1",
+            [&group_id],
+        )?;
+        for principal in participants {
+            tx.execute(
+                "INSERT INTO directory_group_members (group_id, principal_id)
+                 VALUES (?1, ?2) ON CONFLICT DO NOTHING",
+                params![group_id, principal],
+            )?;
+        }
+        tx.commit()?;
+        Ok(group_id)
+    }
+
+    /// The group over exactly this participant set, if one exists.
+    pub fn resolve_group_by_participants(
+        &self,
+        participants: &[String],
+    ) -> AppResult<Option<String>> {
+        let key = Self::participant_key(participants);
+        let conn = self.pool.get()?;
+        let mut stmt =
+            conn.prepare("SELECT id FROM directory_groups WHERE participant_key = ?1")?;
+        let mut rows = stmt.query_map([&key], |r| r.get(0))?;
+        Ok(rows.next().transpose()?)
+    }
+
+    pub fn list_groups(&self) -> AppResult<Vec<Group>> {
+        let conn = self.pool.get()?;
+        let mut stmt = conn.prepare("SELECT * FROM directory_groups ORDER BY name")?;
+        let rows = stmt.query_map([], |r| {
+            Ok(Group {
+                id: r.get("id")?,
+                name: r.get("name")?,
+                participant_key: r.get("participant_key")?,
+                created_by: r.get("created_by")?,
+                created_at: r.get("created_at")?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn group_members(&self, group_id: &str) -> AppResult<Vec<String>> {
+        let conn = self.pool.get()?;
+        let mut stmt = conn
+            .prepare("SELECT principal_id FROM directory_group_members WHERE group_id = ?1 ORDER BY principal_id")?;
+        let rows = stmt.query_map([group_id], |r| r.get(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Groups a principal belongs to, as scope ids.
+    pub fn reachable_group_scopes(&self, principal_id: &str) -> AppResult<Vec<ScopeId>> {
+        let conn = self.pool.get()?;
+        let mut stmt = conn.prepare(
+            "SELECT g.id FROM directory_groups g
+             JOIN directory_group_members m ON m.group_id = g.id
+             WHERE m.principal_id = ?1
+             ORDER BY g.name",
+        )?;
+        let rows = stmt.query_map([principal_id], |r| r.get::<_, String>(0))?;
+        Ok(rows
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .map(|id| ScopeId::new(ScopeKind::Group, &id))
+            .collect())
+    }
+
+    pub fn delete_group(&self, group_id: &str) -> AppResult<bool> {
+        let conn = self.pool.get()?;
+        Ok(conn.execute("DELETE FROM directory_groups WHERE id = ?1", [group_id])? > 0)
+    }
+
+    // -- connector identities -----------------------------------------------
+
+    /// Bind an external account to a principal, so a Telegram or Slack message
+    /// from them runs as that person rather than as a guest.
+    pub fn link_identity(
+        &self,
+        surface: &str,
+        external_id: &str,
+        principal_id: &str,
+        label: Option<&str>,
+        linked_by: &str,
+    ) -> AppResult<()> {
+        if external_id.trim().is_empty() {
+            return Err(AppError::bad_request("an external id is required"));
+        }
+        self.require_principal(principal_id)?;
+        let conn = self.pool.get()?;
+        conn.execute(
+            "INSERT INTO connector_identities
+                (surface, external_id, principal_id, label, linked_by, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(surface, external_id) DO UPDATE SET
+                principal_id = excluded.principal_id,
+                label = excluded.label,
+                linked_by = excluded.linked_by",
+            params![
+                surface,
+                external_id.trim(),
+                principal_id,
+                label.map(str::trim).filter(|l| !l.is_empty()),
+                linked_by,
+                now_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn unlink_identity(&self, surface: &str, external_id: &str) -> AppResult<bool> {
+        let conn = self.pool.get()?;
+        Ok(conn.execute(
+            "DELETE FROM connector_identities WHERE surface = ?1 AND external_id = ?2",
+            params![surface, external_id],
+        )? > 0)
+    }
+
+    /// The principal an external account belongs to, if the admin linked it.
+    pub fn identity_principal(
+        &self,
+        surface: &str,
+        external_id: &str,
+    ) -> AppResult<Option<String>> {
+        let conn = self.pool.get()?;
+        let mut stmt = conn.prepare(
+            "SELECT principal_id FROM connector_identities WHERE surface = ?1 AND external_id = ?2",
+        )?;
+        let mut rows = stmt.query_map(params![surface, external_id], |r| r.get(0))?;
+        Ok(rows.next().transpose()?)
+    }
+
+    pub fn list_identities(&self) -> AppResult<Vec<ConnectorIdentity>> {
+        let conn = self.pool.get()?;
+        let mut stmt = conn.prepare(
+            "SELECT surface, external_id, principal_id, label, created_at
+             FROM connector_identities ORDER BY surface, principal_id",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(ConnectorIdentity {
+                surface: r.get(0)?,
+                external_id: r.get(1)?,
+                principal_id: r.get(2)?,
+                label: r.get(3)?,
+                created_at: r.get(4)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    // -- connector channels -------------------------------------------------
+
+    /// Point an external conversation at a scope that already exists, so a
+    /// Telegram group, a Slack channel and the web UI share one memory.
+    pub fn link_channel(
+        &self,
+        surface: &str,
+        external_id: &str,
+        scope: &ScopeId,
+        label: Option<&str>,
+        linked_by: &str,
+    ) -> AppResult<()> {
+        if external_id.trim().is_empty() {
+            return Err(AppError::bad_request("an external chat id is required"));
+        }
+        if !scope.is_shared() {
+            return Err(AppError::bad_request(
+                "an external conversation can only be bound to a shared scope — a channel or a group",
+            ));
+        }
+        let conn = self.pool.get()?;
+        conn.execute(
+            "INSERT INTO connector_channels
+                (surface, external_id, scope_id, label, linked_by, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(surface, external_id) DO UPDATE SET
+                scope_id = excluded.scope_id,
+                label = excluded.label,
+                linked_by = excluded.linked_by",
+            params![
+                surface,
+                external_id.trim(),
+                scope.as_str(),
+                label.map(str::trim).filter(|l| !l.is_empty()),
+                linked_by,
+                now_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn unlink_channel(&self, surface: &str, external_id: &str) -> AppResult<bool> {
+        let conn = self.pool.get()?;
+        Ok(conn.execute(
+            "DELETE FROM connector_channels WHERE surface = ?1 AND external_id = ?2",
+            params![surface, external_id],
+        )? > 0)
+    }
+
+    /// The scope an external conversation is bound to, if any.
+    pub fn channel_scope(&self, surface: &str, external_id: &str) -> AppResult<Option<ScopeId>> {
+        let conn = self.pool.get()?;
+        let mut stmt = conn.prepare(
+            "SELECT scope_id FROM connector_channels WHERE surface = ?1 AND external_id = ?2",
+        )?;
+        let mut rows = stmt.query_map(params![surface, external_id], |r| r.get::<_, String>(0))?;
+        Ok(rows.next().transpose()?.map(ScopeId::from_raw))
+    }
+
+    pub fn list_channel_links(&self) -> AppResult<Vec<ConnectorChannel>> {
+        let conn = self.pool.get()?;
+        let mut stmt = conn.prepare(
+            "SELECT surface, external_id, scope_id, label, created_at
+             FROM connector_channels ORDER BY surface, scope_id",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(ConnectorChannel {
+                surface: r.get(0)?,
+                external_id: r.get(1)?,
+                scope_id: r.get(2)?,
+                label: r.get(3)?,
+                created_at: r.get(4)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
     }
 
     // -- scope configuration ------------------------------------------------

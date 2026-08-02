@@ -111,9 +111,25 @@ max_catchup_secs = 3600
 public_url = "http://127.0.0.1:8080"
 product_name = "QM"
 
-# WHO MAY SIGN IN. With none of the three set, nobody can — the server warns
-# loudly at boot. With only `admin_email` set, that address is the only one
-# admitted; "anyone with an email address" is never the default.
+# HOW MEMBERSHIP IS DECIDED.
+#
+#   allowlist (default) — only an address listed below, or a person the admin
+#                         added on /admin/people, may sign in.
+#   denylist            — any well-formed address may sign in unless that
+#                         person has been deactivated. This is upstream QM's
+#                         model, where being in the Slack workspace IS the
+#                         membership and the admin offboards rather than
+#                         invites. Only use it when something else already
+#                         bounds who can reach the server — a VPN, an SSO
+#                         proxy, or `allowed_domains` below.
+membership_mode = "allowlist"
+
+# WHO MAY SIGN IN. Under `allowlist` with none of the three set, nobody can —
+# the server warns loudly at boot. With only `admin_email` set, that address is
+# the only one admitted; "anyone with an email address" is never the default.
+#
+# The admin adds everyone else from /admin/people at runtime; no restart and no
+# config edit is needed for that.
 #
 # `admin_email` should match [org].admin, and is attached to that principal on
 # first boot so the configured admin signs in as themselves.

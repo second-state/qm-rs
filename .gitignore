@@ -23,6 +23,8 @@ Cargo.lock.orig
 .env.e2e
 
 # Live e2e reports: screenshots + real model output.
+# docs/tutorial/ is deliberately NOT ignored — the generated guide is committed
+# so it renders on GitHub, and regenerating it is how it stays true.
 /e2e-reports/
 
 # Installed on demand by scripts/e2e_report.sh.

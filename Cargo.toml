@@ -26,6 +26,7 @@ toml = "0.8"
 # Utilities
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
+form_urlencoded = "1"
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 rand = "0.8"
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }

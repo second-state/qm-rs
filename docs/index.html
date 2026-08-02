@@ -1,0 +1,190 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Getting started with qm-rs</title>
+<meta name="description" content="Set up a team on qm-rs: sign in, add people, create a group, and put the agent to work privately and together.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A6%AB%3C/text%3E%3C/svg%3E">
+<style>
+  :root { --ink:#16181d; --paper:#fbfbfd; --panel:#fff; --line:#e3e5ec; --accent:#3557d6;
+          --accent-soft:#edf1fe; --muted:#5c6070; --bad:#b4232b; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#e8eaf0; --paper:#14161b; --panel:#1c1f26; --line:#2b3039; --accent:#7d9bff;
+            --accent-soft:#232a3d; --muted:#9aa0b0; --bad:#f28b8b; }
+  }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+         background:var(--paper); color:var(--ink); margin:0; line-height:1.65; font-size:16px; }
+  a { color:var(--accent); }
+  header { background:var(--ink); color:var(--paper); padding:44px 30px 38px; }
+  @media (prefers-color-scheme: dark) { header { background:#0d0f13; color:var(--ink); } }
+  header .wrap { max-width:820px; margin:0 auto; }
+  header h1 { margin:0 0 10px; font-size:2rem; letter-spacing:-.025em; }
+  header p { margin:0; opacity:.85; font-size:1.02rem; max-width:60ch; }
+  header code { background:rgba(255,255,255,.14); padding:1px 6px; border-radius:5px; font-size:.9em; }
+  .wrap { max-width:820px; margin:0 auto; padding:0 30px; }
+  .intro-block { padding:34px 0 6px; }
+  .intro-block h2 { font-size:1.3rem; letter-spacing:-.01em; margin:28px 0 10px; }
+  .intro-block p { color:var(--ink); }
+  nav.toc { background:var(--panel); border:1px solid var(--line); border-radius:12px;
+            padding:18px 24px; margin:30px 0 10px; }
+  nav.toc h2 { font-size:.78rem; text-transform:uppercase; letter-spacing:.08em;
+               color:var(--muted); margin:0 0 8px; }
+  nav.toc ol { margin:0; padding-left:22px; }
+  nav.toc li { margin:4px 0; }
+  section { padding:38px 0; border-top:1px solid var(--line); }
+  section h2 { font-size:1.5rem; letter-spacing:-.02em; margin:0 0 10px; }
+  .intro { color:var(--muted); font-size:1.02rem; margin:0 0 8px; }
+  ol.steps { list-style:none; counter-reset:s; padding:0; margin:26px 0; }
+  ol.steps li { counter-increment:s; position:relative; padding:0 0 0 44px; margin:0 0 18px; }
+  ol.steps li::before {
+    content:counter(s); position:absolute; left:0; top:1px;
+    width:28px; height:28px; border-radius:50%;
+    background:var(--accent); color:#fff; font-size:.85rem; font-weight:700;
+    display:flex; align-items:center; justify-content:center;
+  }
+  figure { margin:26px 0; }
+  figure img { width:100%; border:1px solid var(--line); border-radius:12px; display:block; }
+  figcaption { font-size:.9rem; color:var(--muted); margin-top:10px; }
+  .note { background:var(--accent-soft); border-left:3px solid var(--accent);
+          padding:14px 18px; border-radius:0 10px 10px 0; margin:20px 0; font-size:.96rem; }
+  .fail { color:var(--bad); font-weight:600; }
+  code { background:var(--panel); border:1px solid var(--line); padding:1px 5px;
+         border-radius:5px; font-size:.88em;
+         font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  footer { border-top:1px solid var(--line); padding:30px 0 60px; color:var(--muted); font-size:.9rem; }
+  ul.next { padding-left:20px; }
+  ul.next li { margin:8px 0; }
+</style></head><body>
+<header><div class="wrap">
+  <h1>Getting started with qm-rs</h1>
+  <p>Set up a team from nothing: sign in, add people, group them, and put the agent to work —
+     privately and together.</p>
+</div></header>
+
+<div class="wrap intro-block">
+  <h2>What qm is</h2>
+  <p>qm is a <strong>multiplayer agent harness for work</strong>. Most AI agents are built as personal assistants: one person, one context, one history. That model breaks down the moment a team tries to share one — either everybody sees everybody's notes, or each person gets an assistant that knows nothing about the company.</p>
+  <p>qm takes a different position. Every person and every room gets its own <strong>scope</strong>: its own memory, files, credentials, permissions, scheduled jobs, and a durable working directory the agent can actually run commands in. People work independently without stepping on each other, and the same agent also works with everyone together in shared groups and channels.</p>
+  <p>This is <code>qm-rs</code>, a Rust port of that core onto local SQLite. It is one binary and one database file, with a server-rendered web UI, connectors for Slack and Telegram, and an HTTP API — no build step and nothing to orchestrate.</p>
+  <h2>Why it is built this way</h2>
+  <p>The design turns on one idea: <strong>every turn goes through a single orchestrator</strong>. Whether a message arrives from the web UI, from Slack, from Telegram, or from a scheduled job, it takes the same path — resolve the scope, screen the input, assemble the prompt, drive the model over a small fixed set of tools, and write the result down. Surfaces never reach past the orchestrator, which is what keeps one identity and one policy across all of them.</p>
+  <p>That is also what makes the security properties hold everywhere at once. A command policy that pauses a recursive delete pauses it in Slack too. A scope boundary that stops the agent quoting your private notes in a group holds no matter which surface asked.</p>
+  <h2>Before you start</h2>
+  <p>You need a running qm-rs server. See the [README](https://github.com/second-state/qm-rs) for install instructions. In short: <code>cargo run</code> starts it on port 8080 with a mock harness that needs no credentials, and pointing <code>[harness]</code> at any OpenAI-compatible endpoint with tool calling makes it real.</p>
+  <p>Set <code>[auth].admin_email</code> in <code>config.toml</code> to your own address before you start, or nobody will be able to sign in.</p>
+
+  <nav class="toc">
+    <h2>What this guide covers</h2>
+    <ol><li><a href="#c0">Sign in as the administrator</a></li><li><a href="#c1">Add two people</a></li><li><a href="#c2">Put them both in a group</a></li><li><a href="#c3">Ada works with the agent privately</a></li><li><a href="#c4">The whole group works together</a></li></ol>
+  </nav>
+</div>
+
+<div class="wrap">
+<section id="c0">
+  <h2>1. Sign in as the administrator</h2>
+  
+  <p class="intro">qm has no passwords. You sign in with a link sent to your email address, which works exactly once and expires after fifteen minutes. On a fresh install the administrator is whoever <code>[auth].admin_email</code> names in <code>config.toml</code> — start the server, then follow along.</p>
+  <ol class="steps">
+  <li>Open <strong>http://127.0.0.1:8080</strong> in a browser. You will be redirected to the sign-in page, because every page in qm requires you to be signed in.</li>
+  </ol>
+  <figure><a href="01.png" target="_blank"><img src="01.png" loading="lazy" alt="Any page you ask for while signed out sends you here, remembering where you were headed so you land back there afterwards."></a><figcaption>Any page you ask for while signed out sends you here, remembering where you were headed so you land back there afterwards.</figcaption></figure>
+  <ol class="steps">
+  <li>Type the address you set as <code>[auth].admin_email</code> and press <strong>Email me a link</strong>.</li>
+  </ol>
+  <div class="note">You always get the same confirmation page, whether or not that address is allowed to sign in. That is deliberate: a different response for an unknown address would let anyone test whether a person works at your company.</div>
+  <ol class="steps">
+  <li>Find the link. With the default <code>email_mode = &quot;console&quot;</code> there is no mail provider, so the link is written to the server log instead — look for a line containing <code>sign-in link</code>. To send real email, set <code>email_mode = &quot;resend&quot;</code>, a verified <code>from_address</code>, and the <code>QM_EMAIL_API_KEY</code> environment variable.</li>
+  <li>Open the link. You are signed in, and the <strong>Admin</strong> tab appears in the navigation — it is only shown to the administrator.</li>
+  </ol>
+  <figure><a href="02.png" target="_blank"><img src="02.png" loading="lazy" alt="The Admin page. It shows which model is driving turns, the security posture, the applied database migrations, the command-policy floor, and a durable audit log of everything the agent has done."></a><figcaption>The Admin page. It shows which model is driving turns, the security posture, the applied database migrations, the command-policy floor, and a durable audit log of everything the agent has done.</figcaption></figure>
+</section>
+<section id="c1">
+  <h2>2. Add two people</h2>
+  
+  <p class="intro">A person in qm is a directory entry: an id, a display name, and an email address. There is no invitation to accept and no password to choose — adding someone means they may now sign in with a link to that address, whenever they like. Each person gets a personal scope that nobody else can read: their own memory, files, credentials and working directory.</p>
+  <ol class="steps">
+  <li>From the Admin page, click <strong>People &amp; accounts →</strong>.</li>
+  </ol>
+  <figure><a href="03.png" target="_blank"><img src="03.png" loading="lazy" alt="The People page. The badge at the top shows which membership mode you are running."></a><figcaption>The People page. The badge at the top shows which membership mode you are running.</figcaption></figure>
+  <div class="note">Two membership modes are available, chosen with <code>[auth].membership_mode</code> in <code>config.toml</code>. <strong>allowlist</strong> (the default) admits only people listed here or matched by a rule in the config — nobody else can sign in. <strong>denylist</strong> admits anyone with a valid address unless you deactivate them, which suits a deployment where something else already bounds who can reach the server, such as a VPN or an SSO proxy. Bound it with <code>allowed_domains</code> so only your company's addresses are accepted.</div>
+  <ol class="steps">
+  <li>Fill in <strong>Email address</strong> and <strong>Display name</strong>, optionally set a <strong>Principal id</strong> (otherwise it is derived from the address), and click <strong>Add</strong>. Repeat for the second person.</li>
+  </ol>
+  <figure><a href="04.png" target="_blank"><img src="04.png" loading="lazy" alt="Ada and Dana are now in the directory and can sign in whenever they like. Tell them the URL; they do the rest themselves."></a><figcaption>Ada and Dana are now in the directory and can sign in whenever they like. Tell them the URL; they do the rest themselves.</figcaption></figure>
+  <div class="note">To offboard someone, click <strong>Deactivate</strong>. That refuses their next sign-in and immediately invalidates every browser session and API key they hold — you do not have to hunt them down. <strong>Restore</strong> puts them back. Deactivating is the offboarding verb in both membership modes.</div>
+  <div class="note">If you run the Telegram or Slack connector, the <strong>Link a chat account</strong> form at the bottom of this page binds a person's chat account to their directory entry, so their messages run as them with their scopes rather than as an anonymous guest. You need their platform user id — a Telegram numeric id, or a Slack <code>U…</code> id.</div>
+</section>
+<section id="c2">
+  <h2>3. Put them both in a group</h2>
+  
+  <p class="intro">A group is a set of people who share one scope: one memory, one working directory, one set of files. What the agent learns while working in the group belongs to the group, not to whoever happened to type the message. This is the difference between qm and a personal assistant — the same agent works for individuals and for teams, and keeps the boundary.</p>
+  <ol class="steps">
+  <li>From the Admin page, click <strong>Groups &amp; conversations →</strong>.</li>
+  <li>Enter a <strong>Name</strong> for the group, tick the <strong>Members</strong> who belong to it, and click <strong>Save group</strong>. A group needs at least two people.</li>
+  </ol>
+  <figure><a href="05.png" target="_blank"><img src="05.png" loading="lazy" alt="Creating the Ops group with Ada, Dana and the administrator in it."></a><figcaption>Creating the Ops group with Ada, Dana and the administrator in it.</figcaption></figure>
+  <figure><a href="06.png" target="_blank"><img src="06.png" loading="lazy" alt="The group now exists as the scope `group:ops`. Its three members can open sessions in it; nobody else can see it at all."></a><figcaption>The group now exists as the scope <code>group:ops</code>. Its three members can open sessions in it; nobody else can see it at all.</figcaption></figure>
+  <div class="note">Groups are keyed by their participants, so saving the same set of people again updates that group rather than creating a second one with the same members. That is what lets a multi-person conversation arriving from any surface resolve to the same group every time.</div>
+  <div class="note">If you run a chat connector, use <strong>Link a conversation to a group</strong> at the bottom of this page to point a real Telegram group or Slack channel at <code>group:ops</code>. The chat and the web UI then share one memory and one workspace — a decision made in Slack is visible on the web, and vice versa. Without a binding, a connector derives its own separate scope from the chat id.</div>
+</section>
+<section id="c3">
+  <h2>4. Ada works with the agent privately</h2>
+  
+  <p class="intro">Now someone actually uses it. Ada signs in with her own link and asks the agent to build something in her personal scope. Behind that scope is a durable working directory — a computer that persists between conversations, where anything the agent installs stays installed.</p>
+  <ol class="steps">
+  <li>Ada opens the same URL, enters <strong>her own</strong> email address, and follows her sign-in link. She never needed an invitation code.</li>
+  </ol>
+  <figure><a href="07.png" target="_blank"><img src="07.png" loading="lazy" alt="Ada's dashboard. She can reach her own scope and the Ops group. She cannot see Dana's private scope, and there is no Admin tab for her."></a><figcaption>Ada's dashboard. She can reach her own scope and the Ops group. She cannot see Dana's private scope, and there is no Admin tab for her.</figcaption></figure>
+  <ol class="steps">
+  <li>Click <strong>Sessions</strong>, choose the scope to work in — here <code>personal:ada</code> — give the session a title, and click <strong>Start</strong>.</li>
+  <li>Type what you want in the composer and press Enter. Ask for real work, not just a question.</li>
+  </ol>
+  <figure><a href="08.png" target="_blank"><img src="08.png" loading="lazy" alt="The agent wrote the script and ran it. The tool calls and their real output appear on the transcript as their own entries — you can see exactly what it did, not just what it says it did."></a><figcaption>The agent wrote the script and ran it. The tool calls and their real output appear on the transcript as their own entries — you can see exactly what it did, not just what it says it did.</figcaption></figure>
+  <div class="note">That file is genuinely on disk in Ada's scope. A later conversation can pick it up, because the workspace is durable. Anything the agent learns about how Ada likes to work goes into her memory notebook, which you can read and edit under <strong>Memory</strong>.</div>
+  <div class="note">Some commands stop and ask first. A recursive delete, a force push or destructive SQL raises an approval card with the exact command and the rule it matched, and you choose <strong>Just this once</strong>, <strong>Every time in this session</strong>, or <strong>Always, for me</strong>. Genuinely destructive commands such as <code>mkfs</code> are refused outright and cannot be approved. This floor applies in every security posture.</div>
+</section>
+<section id="c4">
+  <h2>5. The whole group works together</h2>
+  
+  <p class="intro">Finally, the multiplayer part. Ada brings her work into the group, and Dana — a different person, in a different browser, with her own session — picks it up and asks for a change. Both are talking to the same agent in the same scope, and the group remembers.</p>
+  <ol class="steps">
+  <li>Ada clicks <strong>Sessions</strong>, chooses <code>group:ops</code> this time, and starts a session there.</li>
+  <li>She asks the agent to put the work somewhere the team can reach it, and to record who owns it.</li>
+  </ol>
+  <figure><a href="09.png" target="_blank"><img src="09.png" loading="lazy" alt="Ada working in the Ops group. The scope is shown under the title, so it is always clear whether you are somewhere private or somewhere shared."></a><figcaption>Ada working in the Ops group. The scope is shown under the title, so it is always clear whether you are somewhere private or somewhere shared.</figcaption></figure>
+  <ol class="steps">
+  <li>Dana signs in with her own address, opens <strong>Sessions</strong>, and finds the same session waiting for her — she was never sent a link to it. She can see it because she is in the group.</li>
+  </ol>
+  <figure><a href="10.png" target="_blank"><img src="10.png" loading="lazy" alt="Dana's session list. The group session Ada started is there, alongside her own."></a><figcaption>Dana's session list. The group session Ada started is there, alongside her own.</figcaption></figure>
+  <ol class="steps">
+  <li>Dana opens it and asks for a change, in the same conversation.</li>
+  </ol>
+  <figure><a href="11.png" target="_blank"><img src="11.png" loading="lazy" alt="The agent made the change — in the group workspace, to the file Ada put there. One conversation, two people, one agent that has the full context of both."></a><figcaption>The agent made the change — in the group workspace, to the file Ada put there. One conversation, two people, one agent that has the full context of both.</figcaption></figure>
+  <ol class="steps">
+  <li>Open <strong>Memory</strong> and choose the group to see what the agent has learned on the team's behalf.</li>
+  </ol>
+  <figure><a href="12.png" target="_blank"><img src="12.png" loading="lazy" alt="The group's memory notebook. What the agent learned here belongs to the Ops group — it is not in Ada's private notebook, and not in Dana's."></a><figcaption>The group's memory notebook. What the agent learned here belongs to the Ops group — it is not in Ada's private notebook, and not in Dana's.</figcaption></figure>
+  <div class="note">This is the whole point of scopes. Ada and Dana each have a private workspace the other cannot read, and a shared one where the agent keeps a single memory for the team. The same boundary holds however the message arrives — the web UI, Slack, Telegram, or a scheduled job — because every turn goes through one orchestrator that resolves the scope before the model sees anything.</div>
+</section>
+
+<section>
+  <h2>Where to go next</h2>
+  <ul class="next">
+    <li><strong>Skills</strong> — write a reusable instruction bundle the agent follows. Skills are
+        scoped and signed, so a tampered skill is hidden from every turn rather than executed.</li>
+    <li><strong>Crons</strong> — ask the agent to schedule work, or add it yourself. Each scheduled
+        instant fires exactly once, and the schedule advances whatever the outcome.</li>
+    <li><strong>Keychain</strong> — store credentials per scope. They are materialized as
+        environment variables when the agent runs a command, and never rendered, logged, or
+        written to the audit trail.</li>
+    <li><strong>Connectors</strong> — put the same agent in Slack and Telegram, sharing the scopes
+        you just set up.</li>
+  </ul>
+</section>
+
+<footer>
+  Generated on 2026-08-02T20:30:30Z from a real run against <code>openai/gpt-5.6-sol</code>.
+  Every screenshot is the actual application and every agent reply is a real model turn —
+  regenerate with <code>bash scripts/tutorial.sh</code>.
+</footer>
+</div>
+</body></html>

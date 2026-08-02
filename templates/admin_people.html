@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1>People</h1>
+<p class="sub">
+  Membership mode <span class="badge accent">{{ membership_mode }}</span> ·
+  {% if is_denylist %}
+    anyone with a valid address may sign in unless you deactivate them
+    {% if allowed_domains %}(bounded to {{ allowed_domains | join(sep=", ") }}){% else %}
+      <span class="badge danger">unbounded</span>
+    {% endif %}
+  {% else %}
+    only people listed here, or matched by <code>config.toml</code>, may sign in
+  {% endif %}
+</p>
+
+<div class="panel">
+  <h3>Add someone</h3>
+  <p class="hint">
+    Adding a person creates their directory entry. There is no separate invite to
+    accept — they sign in with a magic link to this address whenever they like.
+  </p>
+  <form method="post" action="/admin/people/invite">
+    <div class="row">
+      <div>
+        <label for="email">Email address</label>
+        <input type="text" id="email" name="email" inputmode="email" required
+               placeholder="dana@example.com">
+      </div>
+      <div>
+        <label for="display_name">Display name</label>
+        <input type="text" id="display_name" name="display_name" placeholder="Dana Scott">
+      </div>
+      <div>
+        <label for="principal_id">Principal id (optional)</label>
+        <input type="text" id="principal_id" name="principal_id" placeholder="derived from the email">
+      </div>
+      <div class="fixed"><button class="btn primary" type="submit">Add</button></div>
+    </div>
+  </form>
+</div>
+
+<div class="panel">
+  <div class="table-wrap">
+    <table>
+      <tr><th>Person</th><th>Email</th><th>Linked accounts</th><th>Added</th><th></th></tr>
+      {% for p in people %}
+        <tr>
+          <td>
+            <code>{{ p.id }}</code>
+            {% if p.name %}<div class="hint">{{ p.name }}</div>{% endif %}
+            {% if not p.active %}<span class="badge danger">deactivated</span>{% endif %}
+            {% if p.kind == "guest" %}<span class="badge">guest</span>{% endif %}
+          </td>
+          <td>{{ p.email | default(value="—") }}</td>
+          <td>
+            {% for l in p.links %}
+              <form method="post" action="/admin/people/unlink" class="inline">
+                <input type="hidden" name="surface" value="{{ l.surface }}">
+                <input type="hidden" name="external_id" value="{{ l.external_id }}">
+                <span class="badge">{{ l.surface }} {{ l.label | default(value=l.external_id) }}</span>
+                <button class="btn small" type="submit" title="Unlink">×</button>
+              </form>
+            {% else %}
+              <span class="hint">none</span>
+            {% endfor %}
+          </td>
+          <td>{{ p.created_at | relative_time }}</td>
+          <td>
+            <form method="post" action="/admin/people/active" class="inline">
+              <input type="hidden" name="principal_id" value="{{ p.id }}">
+              <input type="hidden" name="active" value="{% if p.active %}false{% else %}true{% endif %}">
+              <button class="btn small {% if p.active %}danger{% endif %}" type="submit">
+                {% if p.active %}Deactivate{% else %}Restore{% endif %}
+              </button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </table>
+  </div>
+  <p class="hint">
+    Deactivating refuses their next sign-in and ends every session and API key they hold,
+    immediately. It is the offboarding verb in both membership modes.
+  </p>
+</div>
+
+{% if telegram_enabled or slack_enabled %}
+  <h2>Link a chat account</h2>
+  <div class="panel">
+    <p class="hint">
+      Bind someone's Telegram or Slack user id to their directory entry, so their messages
+      run as them rather than as a guest. An unlinked sender still gets served — as a guest
+      principal with only their own scope.
+    </p>
+    <form method="post" action="/admin/people/link">
+      <div class="row">
+        <div>
+          <label for="link-principal">Person</label>
+          <select id="link-principal" name="principal_id">
+            {% for p in people %}
+              {% if p.active %}<option value="{{ p.id }}">{{ p.id }}</option>{% endif %}
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="link-surface">Surface</label>
+          <select id="link-surface" name="surface">
+            {% if telegram_enabled %}<option value="telegram">Telegram</option>{% endif %}
+            {% if slack_enabled %}<option value="slack">Slack</option>{% endif %}
+          </select>
+        </div>
+        <div>
+          <label for="link-external">Their user id</label>
+          <input type="text" id="link-external" name="external_id" required
+                 placeholder="Telegram 123456789 · Slack U01234567">
+        </div>
+        <div>
+          <label for="link-label">Handle (optional)</label>
+          <input type="text" id="link-label" name="label" placeholder="@dana">
+        </div>
+        <div class="fixed"><button class="btn primary" type="submit">Link</button></div>
+      </div>
+    </form>
+  </div>
+{% endif %}
+
+{% endblock content %}

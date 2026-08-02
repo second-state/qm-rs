@@ -369,11 +369,15 @@ impl SlackClient {
     }
 
     fn route(&self, event: &SlackEvent, user: &str, is_dm: bool) -> Routing {
+        // An admin-created link wins over the config map, which beats falling
+        // back to a guest principal.
         let principal = self
-            .config
-            .principals
-            .get(user)
-            .cloned()
+            .stores
+            .directory
+            .identity_principal("slack", user)
+            .ok()
+            .flatten()
+            .or_else(|| self.config.principals.get(user).cloned())
             .unwrap_or_else(|| format!("slack:{user}"));
         let channel = event.channel.clone().unwrap_or_default();
 
@@ -386,7 +390,17 @@ impl SlackClient {
                 channel_name: None,
             }
         } else {
-            let reference = format!("slack-{channel}");
+            // A bound channel points at a group or channel the admin already
+            // made; otherwise the scope is derived from the Slack channel id.
+            let derived = format!("slack-{channel}");
+            let scope = self
+                .stores
+                .directory
+                .channel_scope("slack", &channel)
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| ScopeId::channel(&derived));
+            let reference = scope.reference().to_string();
             // One session per Slack thread, so two conversations in the same
             // channel do not interleave into one transcript.
             let thread_ref = match event.thread_ts.as_deref() {
@@ -394,7 +408,7 @@ impl SlackClient {
                 None => format!("slack:{channel}"),
             };
             Routing {
-                scope: ScopeId::channel(&reference),
+                scope,
                 principal,
                 session_type: SessionType::Channel,
                 thread_ref,

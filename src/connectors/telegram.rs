@@ -364,11 +364,15 @@ impl TelegramConnector {
     }
 
     fn route(&self, message: &Message, from: &User) -> Routing {
+        // An admin-created link wins over the config map, which in turn beats
+        // falling back to a guest principal. The DB is checked first so
+        // onboarding someone does not need a config edit and a restart.
         let principal = self
-            .config
-            .principals
-            .get(&from.id.to_string())
-            .cloned()
+            .directory
+            .identity_principal("telegram", &from.id.to_string())
+            .ok()
+            .flatten()
+            .or_else(|| self.config.principals.get(&from.id.to_string()).cloned())
             .unwrap_or_else(|| format!("telegram:{}", from.id));
 
         let display_name = from.username.clone().or_else(|| from.first_name.clone());
@@ -383,14 +387,25 @@ impl TelegramConnector {
                 channel_name: None,
             }
         } else {
-            let reference = format!("tg-{}", message.chat.id);
+            // A bound chat points at a group or channel the admin already
+            // made, so a Telegram group and the web UI share one scope — one
+            // memory, one set of files. Unbound chats get their own derived
+            // scope.
+            let bound = self
+                .directory
+                .channel_scope("telegram", &message.chat.id.to_string())
+                .ok()
+                .flatten();
+            let derived = format!("tg-{}", message.chat.id);
+            let scope = bound.unwrap_or_else(|| ScopeId::channel(&derived));
+            let label = scope.reference().to_string();
             Routing {
-                scope: ScopeId::channel(&reference),
+                scope,
                 principal,
                 display_name,
                 session_type: SessionType::Channel,
                 thread_ref: format!("tg:{}", message.chat.id),
-                channel_name: message.chat.title.clone().or(Some(reference)),
+                channel_name: message.chat.title.clone().or(Some(label)),
             }
         }
     }

@@ -53,6 +53,10 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
         "0002_auth_and_slack",
         include_str!("../sql/migrations/0002_auth_and_slack.sql"),
     ),
+    (
+        "0003_onboarding",
+        include_str!("../sql/migrations/0003_onboarding.sql"),
+    ),
 ];
 
 pub fn run_migrations(pool: &DbPool) -> AppResult<()> {
@@ -165,6 +169,8 @@ mod tests {
             "command_approval_grants",
             "deliveries",
             "audit_log",
+            "connector_identities",
+            "connector_channels",
         ] {
             let exists: i64 = conn
                 .query_row(

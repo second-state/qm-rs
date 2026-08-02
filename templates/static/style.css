@@ -234,3 +234,21 @@ code { background: var(--accent-soft); padding: 1px 5px; border-radius: 5px; }
 .approval .choices { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 
 #live { color: var(--muted); font-size: 13px; min-height: 1.4em; }
+
+/* Member pickers on the admin group form. */
+.checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; margin-top: 4px; }
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 14px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.check:hover { border-color: var(--accent); }
+.check input { width: auto; margin: 0; }

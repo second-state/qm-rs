@@ -53,10 +53,14 @@ impl AppState {
         ScopeId::org(&self.config.org.id)
     }
 
-    /// Scopes the given principal may read: their own, every channel they
-    /// belong to, and the org.
+    /// Scopes the given principal may read: their own, every channel and group
+    /// they belong to, and the org.
+    ///
+    /// Ordered narrowest first, which is what makes a nearer scope's skill or
+    /// memory shadow a shared one of the same name.
     pub fn scopes_for(&self, actor: &str) -> AppResult<Vec<ScopeId>> {
         let mut scopes = vec![ScopeId::personal(actor)];
+        scopes.extend(self.stores.directory.reachable_group_scopes(actor)?);
         scopes.extend(self.stores.directory.reachable_channel_scopes(actor)?);
         scopes.push(self.org_scope());
         Ok(scopes)
@@ -91,6 +95,16 @@ pub fn router(state: AppState) -> Router {
         .route("/keychain", get(pages::keychain).post(pages::put_keychain))
         .route("/keychain/delete", post(pages::delete_keychain))
         .route("/admin", get(pages::admin))
+        .route("/admin/people", get(pages::admin_people))
+        .route("/admin/people/invite", post(pages::admin_invite))
+        .route("/admin/people/active", post(pages::admin_set_active))
+        .route("/admin/people/link", post(pages::admin_link_identity))
+        .route("/admin/people/unlink", post(pages::admin_unlink_identity))
+        .route("/admin/groups", get(pages::admin_groups))
+        .route("/admin/groups/save", post(pages::admin_create_group))
+        .route("/admin/groups/delete", post(pages::admin_delete_group))
+        .route("/admin/groups/link", post(pages::admin_link_channel))
+        .route("/admin/groups/unlink", post(pages::admin_unlink_channel))
         // Sign-in. These are the routes a signed-out browser may reach.
         .route("/auth/login", get(auth_routes::login_form))
         .route("/auth/request", post(auth_routes::request_link))
@@ -258,6 +272,8 @@ mod tests {
             "files.html",
             "keychain.html",
             "admin.html",
+            "admin_people.html",
+            "admin_groups.html",
             "login.html",
             "account.html",
             "static/style.css",

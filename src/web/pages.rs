@@ -1,6 +1,6 @@
 //! Server-rendered pages.
 
-use axum::extract::{Form, Path, Query, State};
+use axum::extract::{Form, Path, Query, RawForm, State};
 use axum::http::header;
 use axum::response::{IntoResponse, Redirect, Response};
 use serde::Deserialize;
@@ -974,4 +974,426 @@ pub async fn admin(
             .collect::<Vec<_>>(),
     );
     render(&state, "admin.html", &ctx)
+}
+
+// ---------------------------------------------------------------------------
+// Admin · people and groups
+// ---------------------------------------------------------------------------
+
+/// Admin-only, and said once here rather than repeated in every handler below.
+fn require_admin(state: &AppState, user: &CurrentUser) -> AppResult<()> {
+    if user.is_admin(&state.config) {
+        return Ok(());
+    }
+    Err(AppError::forbidden(
+        "this page is limited to the org administrator",
+    ))
+}
+
+pub async fn admin_people(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Query(query): Query<FlashQuery>,
+) -> AppResult<impl IntoResponse> {
+    require_admin(&state, &user)?;
+    let (mut ctx, _actor) = base_context(&state, &user, "admin", "People")?;
+
+    let identities = state.stores.directory.list_identities()?;
+    let people: Vec<serde_json::Value> = state
+        .stores
+        .directory
+        .list_principals()?
+        .into_iter()
+        .map(|p| {
+            let links: Vec<serde_json::Value> = identities
+                .iter()
+                .filter(|i| i.principal_id == p.id)
+                .map(|i| {
+                    serde_json::json!({
+                        "surface": i.surface, "external_id": i.external_id, "label": i.label,
+                    })
+                })
+                .collect();
+            serde_json::json!({
+                "id": p.id,
+                "name": p.display_name,
+                "email": p.email,
+                "kind": p.kind.as_str(),
+                "active": p.active,
+                "created_at": p.created_at,
+                "links": links,
+            })
+        })
+        .collect();
+
+    ctx.insert("people", &people);
+    ctx.insert("membership_mode", &state.config.auth.membership_mode);
+    ctx.insert("is_denylist", &state.config.auth.is_denylist());
+    ctx.insert("allowed_domains", &state.config.auth.allowed_domains);
+    ctx.insert("telegram_enabled", &state.config.telegram.enabled);
+    ctx.insert("slack_enabled", &state.config.slack.enabled);
+    with_flash(&mut ctx, &query.flash);
+    render(&state, "admin_people.html", &ctx)
+}
+
+#[derive(Deserialize)]
+pub struct InviteForm {
+    email: String,
+    #[serde(default)]
+    display_name: Option<String>,
+    #[serde(default)]
+    principal_id: Option<String>,
+}
+
+/// Add someone to the directory.
+///
+/// Under `allowlist` this is what lets them sign in at all; under `denylist`
+/// it just gives them a stable principal id and display name ahead of time.
+/// Either way there is no separate invite record — the principal *is* the
+/// invitation, which is why offboarding is `set_active(false)` rather than a
+/// second table to keep in sync.
+pub async fn admin_invite(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Form(form): Form<InviteForm>,
+) -> AppResult<Redirect> {
+    require_admin(&state, &user)?;
+    let email = form.email.trim().to_ascii_lowercase();
+    if !email.contains('@') || email.starts_with('@') || email.ends_with('@') {
+        return Err(AppError::bad_request("that is not an email address"));
+    }
+    if let Some(existing) = state.stores.directory.principal_by_email(&email)? {
+        return Ok(Redirect::to(&format!(
+            "/admin/people?flash={}+already+has+an+account",
+            existing.id
+        )));
+    }
+
+    let directory = state.stores.directory.clone();
+    let id = match form
+        .principal_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        Some(requested) => {
+            if directory.principal(requested)?.is_some() {
+                return Err(AppError::bad_request(format!(
+                    "the id {requested:?} is already taken"
+                )));
+            }
+            requested.to_string()
+        }
+        None => crate::auth::principal_id_for(&email, |candidate| {
+            directory.principal(candidate).ok().flatten().is_some()
+        }),
+    };
+
+    state.stores.directory.upsert_principal(
+        &id,
+        crate::types::PrincipalKind::Internal,
+        form.display_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty()),
+        Some(&email),
+    )?;
+    state.stores.audit.record(
+        user.id(),
+        "admin.person.add",
+        None,
+        Some(&id),
+        Some(serde_json::json!({ "email": email })),
+        true,
+    );
+    Ok(Redirect::to(&format!(
+        "/admin/people?flash=Added+{id}.+They+can+sign+in+with+their+email."
+    )))
+}
+
+#[derive(Deserialize)]
+pub struct PersonActiveForm {
+    principal_id: String,
+    active: String,
+}
+
+/// Deactivate or restore someone.
+///
+/// Deactivating is the offboarding verb in both membership modes: it refuses
+/// their sign-in and invalidates every live session and API key they hold.
+pub async fn admin_set_active(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Form(form): Form<PersonActiveForm>,
+) -> AppResult<Redirect> {
+    require_admin(&state, &user)?;
+    let active = form.active == "true";
+    if !active && form.principal_id == state.config.org.admin {
+        return Err(AppError::bad_request(
+            "the org administrator cannot deactivate themselves — nobody would be left to undo it",
+        ));
+    }
+    state
+        .stores
+        .directory
+        .set_active(&form.principal_id, active)?;
+    if !active {
+        // Their sessions would otherwise keep working until they expired.
+        state.stores.auth.revoke_all_sessions(&form.principal_id)?;
+    }
+    state.stores.audit.record(
+        user.id(),
+        if active {
+            "admin.person.restore"
+        } else {
+            "admin.person.deactivate"
+        },
+        None,
+        Some(&form.principal_id),
+        None,
+        true,
+    );
+    Ok(Redirect::to("/admin/people?flash=Updated"))
+}
+
+#[derive(Deserialize)]
+pub struct LinkIdentityForm {
+    principal_id: String,
+    surface: String,
+    external_id: String,
+    #[serde(default)]
+    label: Option<String>,
+}
+
+pub async fn admin_link_identity(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Form(form): Form<LinkIdentityForm>,
+) -> AppResult<Redirect> {
+    require_admin(&state, &user)?;
+    state.stores.directory.link_identity(
+        &form.surface,
+        &form.external_id,
+        &form.principal_id,
+        form.label.as_deref(),
+        user.id(),
+    )?;
+    state.stores.audit.record(
+        user.id(),
+        "admin.identity.link",
+        None,
+        Some(&form.principal_id),
+        Some(serde_json::json!({ "surface": form.surface, "external_id": form.external_id })),
+        true,
+    );
+    Ok(Redirect::to("/admin/people?flash=Account+linked"))
+}
+
+#[derive(Deserialize)]
+pub struct UnlinkIdentityForm {
+    surface: String,
+    external_id: String,
+}
+
+pub async fn admin_unlink_identity(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Form(form): Form<UnlinkIdentityForm>,
+) -> AppResult<Redirect> {
+    require_admin(&state, &user)?;
+    state
+        .stores
+        .directory
+        .unlink_identity(&form.surface, &form.external_id)?;
+    Ok(Redirect::to("/admin/people?flash=Account+unlinked"))
+}
+
+// ---- groups ---------------------------------------------------------------
+
+pub async fn admin_groups(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Query(query): Query<FlashQuery>,
+) -> AppResult<impl IntoResponse> {
+    require_admin(&state, &user)?;
+    let (mut ctx, _actor) = base_context(&state, &user, "admin", "Groups")?;
+
+    let bindings = state.stores.directory.list_channel_links()?;
+    let groups: Vec<serde_json::Value> = state
+        .stores
+        .directory
+        .list_groups()?
+        .into_iter()
+        .map(|g| {
+            let scope = ScopeId::new(crate::types::ScopeKind::Group, &g.id);
+            let members = state
+                .stores
+                .directory
+                .group_members(&g.id)
+                .unwrap_or_default();
+            let links: Vec<serde_json::Value> = bindings
+                .iter()
+                .filter(|b| b.scope_id == scope.as_str())
+                .map(|b| {
+                    serde_json::json!({
+                        "surface": b.surface, "external_id": b.external_id, "label": b.label,
+                    })
+                })
+                .collect();
+            serde_json::json!({
+                "id": g.id,
+                "name": g.name,
+                "scope": scope.as_str(),
+                "members": members,
+                "created_at": g.created_at,
+                "links": links,
+            })
+        })
+        .collect();
+
+    ctx.insert("groups", &groups);
+    ctx.insert(
+        "people",
+        &state
+            .stores
+            .directory
+            .list_principals()?
+            .into_iter()
+            .filter(|p| p.active)
+            .map(|p| serde_json::json!({ "id": p.id, "name": p.display_name, "email": p.email }))
+            .collect::<Vec<_>>(),
+    );
+    ctx.insert("telegram_enabled", &state.config.telegram.enabled);
+    ctx.insert("slack_enabled", &state.config.slack.enabled);
+    with_flash(&mut ctx, &query.flash);
+    render(&state, "admin_groups.html", &ctx)
+}
+
+/// Read a form body that repeats a key, which is how a checkbox group posts.
+///
+/// axum's `Form` extractor goes through `serde_urlencoded`, which cannot
+/// deserialize a repeated key into a `Vec` — it fails outright with
+/// `invalid type: string "ada", expected a sequence`. The member picker on the
+/// group form is exactly that shape, so it is parsed from the raw body instead.
+fn form_fields(body: &[u8]) -> Vec<(String, String)> {
+    form_urlencoded::parse(body)
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .collect()
+}
+
+fn field<'a>(fields: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    fields
+        .iter()
+        .find(|(k, _)| k == name)
+        .map(|(_, v)| v.trim())
+        .filter(|v| !v.is_empty())
+}
+
+fn repeated(fields: &[(String, String)], name: &str) -> Vec<String> {
+    fields
+        .iter()
+        .filter(|(k, _)| k == name)
+        .map(|(_, v)| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .collect()
+}
+
+pub async fn admin_create_group(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    RawForm(body): RawForm,
+) -> AppResult<Redirect> {
+    require_admin(&state, &user)?;
+    let fields = form_fields(&body);
+    let name = field(&fields, "name")
+        .ok_or_else(|| AppError::bad_request("a group needs a name"))?
+        .to_string();
+    let members = repeated(&fields, "members");
+    let id = field(&fields, "id").unwrap_or(&name).to_string();
+
+    let group_id = state
+        .stores
+        .directory
+        .upsert_group(&id, &name, &members, user.id())?;
+    state.stores.audit.record(
+        user.id(),
+        "admin.group.upsert",
+        Some(&ScopeId::new(crate::types::ScopeKind::Group, &group_id)),
+        Some(&group_id),
+        Some(serde_json::json!({ "members": members })),
+        true,
+    );
+    Ok(Redirect::to(&format!(
+        "/admin/groups?flash=Group+{group_id}+saved"
+    )))
+}
+
+#[derive(Deserialize)]
+pub struct GroupIdForm {
+    id: String,
+}
+
+pub async fn admin_delete_group(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Form(form): Form<GroupIdForm>,
+) -> AppResult<Redirect> {
+    require_admin(&state, &user)?;
+    state.stores.directory.delete_group(&form.id)?;
+    Ok(Redirect::to("/admin/groups?flash=Group+deleted"))
+}
+
+#[derive(Deserialize)]
+pub struct LinkChannelForm {
+    scope: String,
+    surface: String,
+    external_id: String,
+    #[serde(default)]
+    label: Option<String>,
+}
+
+/// Bind an external conversation to a group, so a Telegram group or a Slack
+/// channel shares one scope with the web UI.
+pub async fn admin_link_channel(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Form(form): Form<LinkChannelForm>,
+) -> AppResult<Redirect> {
+    require_admin(&state, &user)?;
+    let scope = ScopeId::from_raw(form.scope.trim());
+    state.stores.directory.link_channel(
+        &form.surface,
+        &form.external_id,
+        &scope,
+        form.label.as_deref(),
+        user.id(),
+    )?;
+    state.stores.audit.record(
+        user.id(),
+        "admin.channel.link",
+        Some(&scope),
+        Some(&form.external_id),
+        Some(serde_json::json!({ "surface": form.surface })),
+        true,
+    );
+    Ok(Redirect::to("/admin/groups?flash=Conversation+linked"))
+}
+
+#[derive(Deserialize)]
+pub struct UnlinkChannelForm {
+    surface: String,
+    external_id: String,
+}
+
+pub async fn admin_unlink_channel(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Form(form): Form<UnlinkChannelForm>,
+) -> AppResult<Redirect> {
+    require_admin(&state, &user)?;
+    state
+        .stores
+        .directory
+        .unlink_channel(&form.surface, &form.external_id)?;
+    Ok(Redirect::to("/admin/groups?flash=Conversation+unlinked"))
 }

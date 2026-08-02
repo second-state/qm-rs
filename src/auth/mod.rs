@@ -78,11 +78,20 @@ pub fn cookie_value(parts: &Parts, name: &str) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
-/// Whether an email may sign in at all.
+/// Whether an email may sign in at all, before the directory is consulted.
 ///
-/// An empty allowlist admits **only** the configured admin. Defaulting to
-/// "anyone with an email address" would make a public deployment an open door,
-/// so the safe reading is the one that requires an explicit decision.
+/// Two modes, chosen by the operator in `[auth].membership_mode`:
+///
+/// * **allowlist** (default) — the address must be the admin, on
+///   `allowed_emails`, or in an `allowed_domains` domain. An empty allowlist
+///   therefore admits only the configured admin. Defaulting to "anyone with an
+///   email address" would make a public deployment an open door, so the safe
+///   reading is the one that requires an explicit decision.
+/// * **denylist** — any well-formed address is admitted here, and membership is
+///   decided by deactivation instead. This is upstream QM's model, where the
+///   Slack workspace is the perimeter. `allowed_domains`, if set, still bounds
+///   it; the caller is responsible for the deactivation check, which needs the
+///   directory.
 pub fn email_allowed(config: &crate::config::AuthConfig, email: &str) -> bool {
     let email = email.trim().to_ascii_lowercase();
     // Both halves must be non-empty: `@acme.test` would otherwise match a
